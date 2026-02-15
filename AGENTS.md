@@ -164,6 +164,11 @@ When the user asks you to find a trade or evaluate an opportunity, follow this s
 | Using `json.dumps()` on SDK responses | Runner handles serialization; use `runner.py markets get` |
 | Running `.venv/bin/python` without `cd {baseDir}` first | Always prefix with `cd {baseDir} &&` |
 | Assuming an order filled without checking | Run `runner.py orders` or `runner.py fills` to confirm |
+| Empty orderbook data | Default host is `api.kalshi.com`; if still empty, check the market ticker is valid and the market is open |
+
+### API Host
+
+The default host is `https://api.kalshi.com/trade-api/v2` (production, authenticated, full orderbook depth). Do NOT use `api.elections.kalshi.com` — it may return empty orderbooks for some markets. Override via `host` in config.yaml or the `KALSHI_HOST` env var. For sandbox testing, use `https://demo-api.kalshi.co/trade-api/v2`.
 
 ## What the Four Gates Mean (Plain English)
 

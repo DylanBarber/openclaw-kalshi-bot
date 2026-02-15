@@ -2,12 +2,22 @@
 
 Quick reference for the `kalshi-python` package (v2.1+). Full docs: https://docs.kalshi.com/python-sdk
 
+## API Hosts
+
+| Host | Use |
+|---|---|
+| `https://api.kalshi.com/trade-api/v2` | **Production** — authenticated trading, full orderbook depth |
+| `https://api.elections.kalshi.com/trade-api/v2` | Public data — may omit orderbook depth for some markets |
+| `https://demo-api.kalshi.co/trade-api/v2` | Demo/sandbox |
+
+**Default:** `api.kalshi.com` (override via `host` in config.yaml or `KALSHI_HOST` env var)
+
 ## Client Setup
 
 ```python
 from kalshi_python import Configuration, KalshiClient
 
-config = Configuration(host="https://api.elections.kalshi.com/trade-api/v2")
+config = Configuration(host="https://api.kalshi.com/trade-api/v2")
 with open("path/to/private_key.pem") as f:
     config.private_key_pem = f.read()
 config.api_key_id = "your-api-key-id"

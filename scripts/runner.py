@@ -34,7 +34,7 @@ import yaml
 # Config helpers
 # ---------------------------------------------------------------------------
 
-DEFAULT_HOST = "https://api.elections.kalshi.com/trade-api/v2"
+DEFAULT_HOST = "https://api.kalshi.com/trade-api/v2"
 CONFIG_FILENAME = "config.yaml"
 
 
