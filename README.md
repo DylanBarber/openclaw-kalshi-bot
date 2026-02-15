@@ -130,55 +130,112 @@ Extra arguments after `--` are forwarded to your strategy's own arg parser.
 
 ## Installing as an OpenClaw Skill
 
-This project is structured as an [OpenClaw](https://github.com/openai/codex) skill. To install it so that Codex / OpenClaw agents can use it automatically:
+This project is an [OpenClaw](https://docs.openclaw.ai/tools/skills) skill following the [AgentSkills](https://agentskills.io) format. The `SKILL.md` file contains the YAML frontmatter (`name` + `description`) that OpenClaw uses to decide when to activate the skill, and the body contains the agent instructions.
 
-### From a local copy
+OpenClaw loads skills from three locations (highest precedence first):
 
-Copy or symlink the `kalshi-bot` folder into your Codex skills directory:
+| Location | Scope |
+|---|---|
+| `<workspace>/skills/` | Per-agent (workspace-local) |
+| `~/.openclaw/skills/` | Shared across all agents on the machine |
+| Bundled skills | Shipped with OpenClaw |
+
+### Option 1: Workspace install (per-agent)
+
+Copy the skill into your workspace's `skills/` directory:
 
 ```bash
-# Default skills location
-cp -r kalshi-bot ~/.codex/skills/kalshi-bot
-
-# Or symlink for development
-ln -s /path/to/kalshi-bot ~/.codex/skills/kalshi-bot
+# From your workspace root
+cp -r /path/to/kalshi-bot skills/kalshi-bot
 ```
 
 On Windows:
 ```powershell
-Copy-Item -Recurse kalshi-bot "$env:USERPROFILE\.codex\skills\kalshi-bot"
+Copy-Item -Recurse C:\path\to\kalshi-bot .\skills\kalshi-bot
 ```
 
-### From a GitHub repository
+This makes the skill available only to agents running in that workspace.
 
-Use the built-in skill installer:
+### Option 2: Managed install (shared across agents)
 
-```
-Install the kalshi-bot skill from <owner>/<repo> at skills/kalshi-bot
-```
-
-Or run the installer script directly:
+Copy or symlink into the managed skills directory:
 
 ```bash
-~/.codex/skills/.system/skill-installer/scripts/install-skill-from-github.py \
-  --repo <owner>/<repo> \
-  --path skills/kalshi-bot
+# Shared across all agents
+cp -r /path/to/kalshi-bot ~/.openclaw/skills/kalshi-bot
+
+# Or symlink for development
+ln -s /path/to/kalshi-bot ~/.openclaw/skills/kalshi-bot
 ```
+
+On Windows:
+```powershell
+Copy-Item -Recurse C:\path\to\kalshi-bot "$env:USERPROFILE\.openclaw\skills\kalshi-bot"
+```
+
+### Option 3: ClawHub
+
+If the skill is published to [ClawHub](https://clawhub.com):
+
+```bash
+clawhub install kalshi-bot
+```
+
+To update later: `clawhub update kalshi-bot`
+
+### Option 4: Extra skills directory
+
+Add a custom skills folder in `~/.openclaw/openclaw.json`:
+
+```json5
+{
+  skills: {
+    load: {
+      extraDirs: ["/path/to/my-skills"]
+    }
+  }
+}
+```
+
+Then place the `kalshi-bot` folder inside that directory.
 
 ### After installation
 
-1. **Restart Codex** to pick up the new skill.
-2. The skill triggers automatically when you mention Kalshi, prediction markets, or trading strategies.
-3. You still need to set up `config.yaml` with your API credentials inside the installed skill's `scripts/` directory.
-4. The agent will follow `AGENTS.md` for its decision-making workflow: always dry-run first, present the order ticket, and wait for your approval before executing.
+1. **Start a new OpenClaw session** to pick up the skill. OpenClaw snapshots eligible skills at session start; changes take effect on the next session (or on hot-reload if the skills watcher is enabled).
+2. The skill triggers automatically when you mention Kalshi, prediction markets, or trading strategies. OpenClaw reads the `SKILL.md` frontmatter `description` to decide when to activate it.
+3. **Set up credentials**: copy `scripts/config.example.yaml` to `scripts/config.yaml` inside the installed skill directory and fill in your Kalshi API key and private key path.
+4. **Install Python dependencies**: run `pip install -r scripts/requirements.txt` inside the skill's `.venv` (see Quick Start above).
+5. The agent follows `AGENTS.md` for its decision-making workflow: always dry-run first, present the order ticket, and wait for your approval before live execution.
 
 ### Verifying installation
 
 ```bash
-ls ~/.codex/skills/kalshi-bot/SKILL.md
+ls ~/.openclaw/skills/kalshi-bot/SKILL.md   # managed install
+# or
+ls skills/kalshi-bot/SKILL.md               # workspace install
 ```
 
-If the file exists, the skill is installed. Codex reads `SKILL.md` frontmatter to decide when to activate it.
+If the file exists and contains valid YAML frontmatter, the skill is installed. You can also check OpenClaw's session logs to confirm `kalshi-bot` appears in the eligible skills list.
+
+### Optional: config overrides
+
+You can toggle the skill or inject env vars via `~/.openclaw/openclaw.json`:
+
+```json5
+{
+  skills: {
+    entries: {
+      "kalshi-bot": {
+        enabled: true,
+        env: {
+          KALSHI_API_KEY_ID: "your-key-id",
+          KALSHI_PRIVATE_KEY_PATH: "/path/to/private_key.pem"
+        }
+      }
+    }
+  }
+}
+```
 
 ## License
 

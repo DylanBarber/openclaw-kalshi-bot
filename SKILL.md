@@ -12,12 +12,13 @@ CLI tool and trading engine for Kalshi prediction markets. Implements a complete
 1. Create venv and install dependencies:
 
 ```bash
+cd {baseDir}
 python3 -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r scripts/requirements.txt
 ```
 
-2. Copy `scripts/config.example.yaml` to `scripts/config.yaml` and fill in credentials:
+2. Copy `{baseDir}/scripts/config.example.yaml` to `{baseDir}/scripts/config.yaml` and fill in credentials:
    - `api_key_id` — from https://kalshi.com/account/api-keys
    - `private_key_path` — path to the RSA PEM file
    - Tune the `risk:` section for your capital/tolerance
@@ -44,7 +45,7 @@ scripts/
 
 ## Commands
 
-All via `python scripts/runner.py <command>`.
+All via `python {baseDir}/scripts/runner.py <command>` (run from the skill directory or use the full path).
 
 ### Market Data
 
