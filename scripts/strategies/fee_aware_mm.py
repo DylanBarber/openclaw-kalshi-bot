@@ -49,12 +49,63 @@ from trade_engine import (  # noqa: E402
 # ── Orderbook parsing helpers ─────────────────────────────────────────────
 
 
+def _extract_ob_levels(ob: Any) -> tuple[list, list]:
+    """Extract YES and NO levels from an orderbook response object.
+
+    The SDK model uses 'var_true'/'var_false' (because yes/no map to
+    true/false which are reserved in Python). Older versions may use
+    'yes'/'no'. We also try to_dict() as a fallback.
+    """
+    # Try SDK model attributes first (current SDK)
+    yes_raw = getattr(ob, "var_true", None)
+    no_raw = getattr(ob, "var_false", None)
+
+    # Fallback: older SDK or dict-style
+    if yes_raw is None:
+        yes_raw = getattr(ob, "yes", None)
+    if no_raw is None:
+        no_raw = getattr(ob, "no", None)
+
+    # Fallback: try to_dict()
+    if yes_raw is None and hasattr(ob, "to_dict"):
+        d = ob.to_dict()
+        yes_raw = d.get("yes") or d.get("var_true") or d.get("true") or []
+        no_raw = d.get("no") or d.get("var_false") or d.get("false") or []
+
+    return (yes_raw or [], no_raw or [])
+
+
+def _level_to_cents(level: Any) -> tuple[int, int]:
+    """Convert an OrderbookLevel to (price_cents, quantity).
+
+    Handles: OrderbookLevel objects (.price/.count), [price, qty] lists,
+    and dicts. Price may be dollars (float 0.65) or cents (int 65).
+    """
+    if isinstance(level, (list, tuple)) and len(level) >= 2:
+        p, q = level[0], level[1]
+    elif isinstance(level, dict):
+        p = level.get("price", 0)
+        q = level.get("count", level.get("quantity", 0))
+    elif hasattr(level, "price"):
+        p = level.price if level.price is not None else 0
+        q = getattr(level, "count", None) or getattr(level, "quantity", 0) or 0
+    else:
+        return (0, 0)
+
+    p_num = float(p) if p else 0.0
+    if 0 < p_num < 1.0:
+        price_cents = round(p_num * 100)
+    else:
+        price_cents = int(p_num)
+    return (price_cents, int(q) if q else 0)
+
+
 def _parse_book(client: Any, ticker: str, depth: int = 20) -> dict[str, Any]:
     """
     Fetch the orderbook and return a normalised dict:
     {
-        "yes_bids": [(price, qty), ...],   # descending by price
-        "yes_asks": [(price, qty), ...],   # ascending by price
+        "yes_bids": [(price_cents, qty), ...],   # descending by price
+        "yes_asks": [(price_cents, qty), ...],   # ascending by price
         "best_yes_bid": int|None,
         "best_yes_ask": int|None,
         "spread_cents": int,
@@ -65,22 +116,10 @@ def _parse_book(client: Any, ticker: str, depth: int = 20) -> dict[str, Any]:
     resp = client.get_market_orderbook(ticker, depth=depth)
     ob = resp.orderbook if hasattr(resp, "orderbook") else resp
 
-    # The SDK returns yes/no arrays — each element is [price, quantity]
-    raw_yes = getattr(ob, "yes", None) or []
-    raw_no = getattr(ob, "no", None) or []
+    raw_yes, raw_no = _extract_ob_levels(ob)
 
-    # Parse into (price, qty) tuples
-    def _to_tuples(raw: list) -> list[tuple[int, int]]:
-        out = []
-        for item in raw:
-            if isinstance(item, (list, tuple)) and len(item) >= 2:
-                out.append((int(item[0]), int(item[1])))
-            elif hasattr(item, "price"):
-                out.append((int(item.price), int(getattr(item, "quantity", 0))))
-        return out
-
-    yes_levels = _to_tuples(raw_yes)
-    no_levels = _to_tuples(raw_no)
+    yes_levels = [_level_to_cents(l) for l in raw_yes]
+    no_levels = [_level_to_cents(l) for l in raw_no]
 
     # YES bids = yes_levels (people wanting to buy YES)
     # YES asks = derived from NO bids (100 - no_bid_price)

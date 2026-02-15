@@ -21,7 +21,7 @@ client = KalshiClient(config)
 |---|---|
 | `client.get_markets(limit=, cursor=, event_ticker=, series_ticker=, status=, tickers=)` | List/search markets |
 | `client.get_market(ticker)` | Single market detail |
-| `client.get_market_orderbook(ticker, depth=10)` | Orderbook bids/asks |
+| `client.get_market_orderbook(ticker, depth=10)` | Orderbook bids — see note below |
 | `client.get_trades(limit=, cursor=, ticker=, min_ts=, max_ts=)` | Public trade history |
 
 ### get_markets filters
@@ -32,6 +32,15 @@ client = KalshiClient(config)
 - `event_ticker` / `series_ticker` — filter by event or series
 - `tickers` — comma-separated market tickers
 - `min_close_ts` / `max_close_ts` — Unix timestamps
+
+### get_market_orderbook response
+
+The response has `.orderbook` with two level arrays:
+- **Python SDK attribute names**: `var_true` (YES bids) and `var_false` (NO bids)
+  - NOT `yes`/`no` — those are mapped to `true`/`false` which are reserved in Python
+- Each level is an `OrderbookLevel` with `.price` (float, **dollars** e.g. 0.65) and `.count` (int, contracts)
+- Levels are sorted ascending; best bid is the **last** element
+- Only bids are returned. YES asks are derived: `ask_cents = 100 - no_bid_cents`
 
 ## Portfolio API
 

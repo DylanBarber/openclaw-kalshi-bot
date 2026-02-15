@@ -188,27 +188,90 @@ def cmd_markets_get(client, args):
     _pp(resp)
 
 
+def _extract_ob_levels(ob: Any) -> tuple[list, list]:
+    """Extract YES and NO levels from an orderbook response object.
+
+    The SDK model uses 'var_true'/'var_false' (because yes/no map to
+    true/false which are reserved in Python). Older versions may use
+    'yes'/'no'. We also try to_dict() as a fallback.
+
+    Each level is an OrderbookLevel with .price (float, dollars) and .count (int).
+    """
+    # Try SDK model attributes first (current SDK)
+    yes_raw = getattr(ob, "var_true", None)
+    no_raw = getattr(ob, "var_false", None)
+
+    # Fallback: older SDK or dict-style
+    if yes_raw is None:
+        yes_raw = getattr(ob, "yes", None)
+    if no_raw is None:
+        no_raw = getattr(ob, "no", None)
+
+    # Fallback: try to_dict()
+    if yes_raw is None and hasattr(ob, "to_dict"):
+        d = ob.to_dict()
+        yes_raw = d.get("yes") or d.get("var_true") or d.get("true") or []
+        no_raw = d.get("no") or d.get("var_false") or d.get("false") or []
+
+    return (yes_raw or [], no_raw or [])
+
+
+def _level_to_cents(level: Any) -> tuple[int, int]:
+    """Convert an OrderbookLevel to (price_cents, quantity).
+
+    Handles: OrderbookLevel objects (.price/.count), [price, qty] lists,
+    and dicts {"price": ..., "count"/"quantity": ...}.
+    Price may be in dollars (float like 0.65) or cents (int like 65).
+    """
+    if isinstance(level, (list, tuple)) and len(level) >= 2:
+        p, q = level[0], level[1]
+    elif isinstance(level, dict):
+        p = level.get("price", 0)
+        q = level.get("count", level.get("quantity", 0))
+    elif hasattr(level, "price"):
+        p = level.price if level.price is not None else 0
+        q = getattr(level, "count", None) or getattr(level, "quantity", 0) or 0
+    else:
+        return (0, 0)
+
+    # Detect dollars vs cents: if price < 1.0 it's likely dollars
+    p_num = float(p) if p else 0.0
+    if 0 < p_num < 1.0:
+        price_cents = round(p_num * 100)
+    else:
+        price_cents = int(p_num)
+    return (price_cents, int(q) if q else 0)
+
+
 def cmd_orderbook(client, args):
     """Display the orderbook for a market."""
     resp = client.get_market_orderbook(args.ticker, depth=args.depth)
     ob = resp.orderbook if hasattr(resp, "orderbook") else resp
 
-    yes_bids = getattr(ob, "yes", None) or []
-    no_bids = getattr(ob, "no", None) or []
+    yes_raw, no_raw = _extract_ob_levels(ob)
+
+    yes_levels = [_level_to_cents(l) for l in yes_raw]
+    no_levels = [_level_to_cents(l) for l in no_raw]
+
+    # Sort: bids descending by price
+    yes_levels.sort(key=lambda x: x[0], reverse=True)
+    no_levels.sort(key=lambda x: x[0], reverse=True)
 
     print(f"\n  Orderbook: {args.ticker}  (depth={args.depth})")
-    print(f"  {'YES bids':>20s}  |  {'NO bids':<20s}")
-    print(f"  {'─' * 20}  |  {'─' * 20}")
+    print(f"  {'YES bids (cents)':>25s}  |  {'NO bids (cents)':<25s}")
+    print(f"  {'─' * 25}  |  {'─' * 25}")
 
-    max_rows = max(len(yes_bids), len(no_bids))
+    max_rows = max(len(yes_levels), len(no_levels))
     for i in range(max_rows):
         left = ""
         right = ""
-        if i < len(yes_bids):
-            left = str(yes_bids[i])
-        if i < len(no_bids):
-            right = str(no_bids[i])
-        print(f"  {left:>20s}  |  {right:<20s}")
+        if i < len(yes_levels):
+            p, q = yes_levels[i]
+            left = f"{p}¢ x {q}"
+        if i < len(no_levels):
+            p, q = no_levels[i]
+            right = f"{p}¢ x {q}"
+        print(f"  {left:>25s}  |  {right:<25s}")
     print()
 
 

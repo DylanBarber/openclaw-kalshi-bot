@@ -52,20 +52,47 @@ def run(client: Any, args: Any) -> None:
             resp = client.get_market_orderbook(ticker, depth=10)
             ob = resp.orderbook if hasattr(resp, "orderbook") else resp
 
-            yes_raw = getattr(ob, "yes", []) or []
-            no_raw = getattr(ob, "no", []) or []
+            # SDK uses var_true/var_false; older versions use yes/no
+            yes_raw = getattr(ob, "var_true", None) or getattr(ob, "yes", None) or []
+            no_raw = getattr(ob, "var_false", None) or getattr(ob, "no", None) or []
 
-            # Parse best levels
+            # Fallback: try to_dict()
+            if not yes_raw and hasattr(ob, "to_dict"):
+                d = ob.to_dict()
+                yes_raw = d.get("yes") or d.get("var_true") or d.get("true") or []
+                no_raw = d.get("no") or d.get("var_false") or d.get("false") or []
+
+            # Parse best level from a list of OrderbookLevel objects or [price, qty] arrays
             def _best(levels):
                 for item in levels:
                     if isinstance(item, (list, tuple)) and len(item) >= 2:
-                        return int(item[0]), int(item[1])
-                    if hasattr(item, "price"):
-                        return int(item.price), int(getattr(item, "quantity", 0))
+                        p = float(item[0])
+                        q = int(item[1])
+                    elif isinstance(item, dict):
+                        p = float(item.get("price", 0))
+                        q = int(item.get("count", item.get("quantity", 0)))
+                    elif hasattr(item, "price"):
+                        p = float(item.price) if item.price is not None else 0
+                        q = int(getattr(item, "count", None) or getattr(item, "quantity", 0) or 0)
+                    else:
+                        continue
+                    # Detect dollars (0 < p < 1) vs cents
+                    price_cents = round(p * 100) if 0 < p < 1.0 else int(p)
+                    if price_cents > 0:
+                        return price_cents, q
                 return None, 0
 
-            bid_price, bid_depth = _best(yes_raw)
-            ask_from_no, ask_depth = _best(no_raw)
+            def _sort_key(x):
+                if hasattr(x, "price"):
+                    return -(float(x.price or 0))
+                elif isinstance(x, (list, tuple)):
+                    return -(float(x[0]))
+                elif isinstance(x, dict):
+                    return -(float(x.get("price", 0)))
+                return 0
+
+            bid_price, bid_depth = _best(sorted(yes_raw, key=_sort_key))
+            ask_from_no, ask_depth = _best(sorted(no_raw, key=_sort_key))
             ask_price = (100 - ask_from_no) if ask_from_no is not None else None
 
             if bid_price is None or ask_price is None:
