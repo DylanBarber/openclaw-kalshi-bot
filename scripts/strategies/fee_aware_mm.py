@@ -403,8 +403,30 @@ def _run_once(client: Any, ticker: str, extra: argparse.Namespace, cfg: RiskConf
     except Exception as e:
         print(f"  WARNING: Failed to place TP order: {e}", file=sys.stderr)
 
-    print(f"  Stop level: {ev.stop_cents}¢  |  Time-stop: {ev.max_hold_minutes} min")
-    print(f"  Monitor position manually or use --loop mode.")
+    print(f"  Stop level: {ev.stop_cents}c  |  Time-stop: {ev.max_hold_minutes} min")
+
+    # Auto-start watcher for this position
+    try:
+        import subprocess
+        watcher_script = str(Path(__file__).resolve().parent.parent / "watcher.py")
+        watcher_cmd = [
+            sys.executable, watcher_script, ticker,
+            "--entry", str(entry_cents),
+            "--side", str(side),
+            "--contracts", str(fill_count),
+            "--stop", str(ev.stop_cents),
+            "--tp", str(ev.take_profit_cents),
+        ]
+        proc = subprocess.Popen(
+            watcher_cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        print(f"  Watcher started (PID {proc.pid}) for {ticker}")
+    except Exception as e:
+        print(f"  WARNING: Failed to auto-start watcher: {e}", file=sys.stderr)
+        print(f"  Start manually: python watcher.py {ticker} --entry {entry_cents} --side {side} --contracts {fill_count} --stop {ev.stop_cents} --tp {ev.take_profit_cents}")
 
 
 def _run_loop(client: Any, ticker: str, extra: argparse.Namespace, cfg: RiskConfig) -> None:

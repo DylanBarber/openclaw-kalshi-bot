@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kalshi Trading Dashboard</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+  <!-- ── Header ──────────────────────────────────────────────────────── -->
+  <header id="header">
+    <div class="header-left">
+      <h1>Kalshi Dashboard</h1>
+    </div>
+    <div class="header-stats">
+      <div class="stat">
+        <span class="stat-label">Balance</span>
+        <span class="stat-value" id="balance">--</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Portfolio</span>
+        <span class="stat-value" id="portfolio-value">--</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Watchers</span>
+        <span class="stat-value" id="watcher-count">0</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Updated</span>
+        <span class="stat-value" id="last-updated">--</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ── Main content ────────────────────────────────────────────────── -->
+  <main>
+
+    <!-- Active Watchers Table -->
+    <section class="panel" id="watchers-panel">
+      <h2>Active Watchers</h2>
+      <div class="table-wrap">
+        <table id="watchers-table">
+          <thead>
+            <tr>
+              <th>Ticker</th>
+              <th>Side</th>
+              <th>Entry</th>
+              <th>Bid</th>
+              <th>Ask</th>
+              <th>Spread</th>
+              <th>P&amp;L</th>
+              <th>Stop</th>
+              <th>TP</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="watchers-body">
+            <tr><td colspan="11" class="empty-msg">No active watchers</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Chart + Orderbook row -->
+    <div class="chart-row">
+
+      <!-- Price Chart -->
+      <section class="panel chart-panel" id="chart-panel">
+        <h2>Price Chart <span id="chart-ticker" class="ticker-badge"></span></h2>
+        <div class="chart-container">
+          <canvas id="price-chart"></canvas>
+        </div>
+        <p class="chart-hint" id="chart-hint">Click a watcher row to load its price history</p>
+      </section>
+
+      <!-- Orderbook -->
+      <section class="panel orderbook-panel" id="orderbook-panel">
+        <h2>Orderbook <span id="ob-ticker" class="ticker-badge"></span></h2>
+        <div class="ob-columns">
+          <div class="ob-side ob-bids">
+            <h3>YES Bids</h3>
+            <div id="ob-yes-bids" class="ob-levels"></div>
+          </div>
+          <div class="ob-side ob-asks">
+            <h3>NO Bids (YES Asks)</h3>
+            <div id="ob-no-bids" class="ob-levels"></div>
+          </div>
+        </div>
+        <div class="ob-summary" id="ob-summary"></div>
+      </section>
+
+    </div>
+
+    <!-- Positions Table -->
+    <section class="panel" id="positions-panel">
+      <h2>Kalshi Positions</h2>
+      <div class="table-wrap">
+        <table id="positions-table">
+          <thead>
+            <tr>
+              <th>Ticker</th>
+              <th>Position</th>
+              <th>Exposure</th>
+              <th>Realized P&amp;L</th>
+            </tr>
+          </thead>
+          <tbody id="positions-body">
+            <tr><td colspan="4" class="empty-msg">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <footer>
+    <span>Kalshi Bot Dashboard &mdash; Polls every 3s &mdash; <a href="https://kalshi.com" target="_blank">kalshi.com</a></span>
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

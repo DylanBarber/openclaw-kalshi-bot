@@ -37,3 +37,9 @@ risk:
   default_take_profit_offset_cents: 6
   default_stop_offset_cents: 4
   default_max_hold_minutes: 120
+
+# ── Watcher (position price monitor) ─────────────────────────────────────
+watcher:
+  poll_interval_seconds: 5
+  max_history_points: 500
+  store_path: "watcher_store.json"

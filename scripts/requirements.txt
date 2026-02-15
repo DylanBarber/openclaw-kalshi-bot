@@ -1,2 +1,4 @@
 kalshi-python>=2.1.0
 pyyaml>=6.0
+flask>=3.0
+requests>=2.31

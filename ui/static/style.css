@@ -1,0 +1,386 @@
+/* ── Kalshi Trading Dashboard — Dark Terminal Theme ──────────────────────── */
+
+:root {
+  --bg-primary:   #0d1117;
+  --bg-secondary: #161b22;
+  --bg-panel:     #1c2333;
+  --bg-hover:     #21293a;
+  --border:       #30363d;
+  --text-primary: #eceff1;
+  --text-secondary: #8b949e;
+  --text-muted:   #5a6370;
+  --accent-green: #00e676;
+  --accent-red:   #ff5252;
+  --accent-blue:  #448aff;
+  --accent-cyan:  #00e5ff;
+  --accent-yellow: #ffd740;
+  --accent-orange: #ff9100;
+  --font-mono: "JetBrains Mono", "Fira Code", "SF Mono", "Cascadia Code", Consolas, monospace;
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Header ──────────────────────────────────────────────────────────────── */
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 24px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+header h1 {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--text-primary);
+}
+
+.header-stats {
+  display: flex;
+  gap: 28px;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.stat-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-muted);
+}
+
+.stat-value {
+  font-size: 16px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  color: var(--accent-green);
+}
+
+/* ── Main layout ─────────────────────────────────────────────────────────── */
+
+main {
+  padding: 16px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ── Panels ──────────────────────────────────────────────────────────────── */
+
+.panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.panel h2 {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+  font-weight: 600;
+}
+
+.ticker-badge {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--accent-cyan);
+  background: rgba(0,229,255,0.1);
+  padding: 2px 8px;
+  border-radius: 4px;
+  margin-left: 8px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* ── Tables ──────────────────────────────────────────────────────────────── */
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  font-family: var(--font-mono);
+}
+
+thead th {
+  text-align: left;
+  padding: 8px 10px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+tbody td {
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(48,54,61,0.5);
+  white-space: nowrap;
+}
+
+tbody tr:hover {
+  background: var(--bg-hover);
+  cursor: pointer;
+}
+
+tbody tr.selected {
+  background: rgba(68,138,255,0.12);
+  border-left: 3px solid var(--accent-blue);
+}
+
+.ticker-cell {
+  color: var(--accent-cyan);
+  font-weight: 500;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.empty-msg {
+  text-align: center;
+  color: var(--text-muted);
+  padding: 24px 10px;
+  font-style: italic;
+}
+
+/* ── P&L colors ──────────────────────────────────────────────────────────── */
+
+.pnl-pos {
+  color: var(--accent-green);
+  font-weight: 600;
+}
+
+.pnl-neg {
+  color: var(--accent-red);
+  font-weight: 600;
+}
+
+/* ── Status badges ───────────────────────────────────────────────────────── */
+
+.status-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}
+
+.status-active {
+  background: rgba(0,230,118,0.15);
+  color: var(--accent-green);
+}
+
+.status-stopped {
+  background: rgba(255,82,82,0.15);
+  color: var(--accent-red);
+}
+
+.status-tp {
+  background: rgba(0,229,255,0.15);
+  color: var(--accent-cyan);
+}
+
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
+
+.btn-remove {
+  background: rgba(255,82,82,0.15);
+  color: var(--accent-red);
+  border: 1px solid rgba(255,82,82,0.3);
+  border-radius: 4px;
+  padding: 3px 10px;
+  font-size: 11px;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  transition: all 0.15s ease;
+}
+
+.btn-remove:hover {
+  background: rgba(255,82,82,0.3);
+  border-color: var(--accent-red);
+}
+
+/* ── Chart + Orderbook row ───────────────────────────────────────────────── */
+
+.chart-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 16px;
+}
+
+@media (max-width: 1000px) {
+  .chart-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.chart-panel {
+  min-height: 350px;
+}
+
+.chart-container {
+  position: relative;
+  height: 280px;
+}
+
+.chart-hint {
+  text-align: center;
+  color: var(--text-muted);
+  font-style: italic;
+  margin-top: 12px;
+  font-size: 12px;
+}
+
+/* ── Orderbook ───────────────────────────────────────────────────────────── */
+
+.orderbook-panel {
+  min-height: 350px;
+}
+
+.ob-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.ob-side h3 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+
+.ob-levels {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ob-row {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 3px 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.ob-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  opacity: 0.2;
+  border-radius: 3px;
+}
+
+.ob-bar-bid {
+  background: var(--accent-green);
+}
+
+.ob-bar-ask {
+  background: var(--accent-red);
+}
+
+.ob-price {
+  position: relative;
+  z-index: 1;
+  color: var(--text-primary);
+}
+
+.ob-qty {
+  position: relative;
+  z-index: 1;
+  color: var(--text-secondary);
+}
+
+.ob-summary {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.ob-summary strong {
+  color: var(--text-primary);
+}
+
+/* ── Footer ──────────────────────────────────────────────────────────────── */
+
+footer {
+  text-align: center;
+  padding: 16px;
+  font-size: 11px;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border);
+}
+
+footer a {
+  color: var(--accent-blue);
+  text-decoration: none;
+}
+
+footer a:hover {
+  text-decoration: underline;
+}
+
+/* ── Scrollbar ───────────────────────────────────────────────────────────── */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}

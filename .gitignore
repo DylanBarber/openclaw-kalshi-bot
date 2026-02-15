@@ -12,6 +12,9 @@ testing/.env
 .env
 *.pem
 
+# Watcher state (ephemeral)
+watcher_store.json
+
 # OS
 .DS_Store
 Thumbs.db

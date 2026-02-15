@@ -447,6 +447,59 @@ def cmd_fills(client, args):
               f"count={f.count}  price={f.yes_price}  ts={f.created_time}")
 
 
+def cmd_watch(_client, args):
+    """Start or manage position watchers."""
+    from watcher import (
+        run_watcher, list_watchers, remove_watcher,
+        DEFAULT_HOST, DEFAULT_POLL_INTERVAL, DEFAULT_MAX_HISTORY, DEFAULT_STORE_PATH,
+    )
+
+    cfg = load_config()
+    watcher_cfg = cfg.get("watcher", {})
+    host = cfg.get("host", DEFAULT_HOST)
+    poll_interval = args.interval or watcher_cfg.get("poll_interval_seconds", DEFAULT_POLL_INTERVAL)
+    max_history = watcher_cfg.get("max_history_points", DEFAULT_MAX_HISTORY)
+    store_path = Path(watcher_cfg.get("store_path", DEFAULT_STORE_PATH))
+    if not store_path.is_absolute():
+        store_path = Path(__file__).resolve().parent / store_path
+
+    if args.watch_list:
+        watchers = list_watchers(store_path)
+        if not watchers:
+            print("  No active watchers.")
+        else:
+            for t, w in watchers.items():
+                cur = w.get("current", {})
+                bid = cur.get("yes_bid", "?")
+                pts = len(w.get("history", []))
+                print(f"  {t:<45s}  bid={bid}c  status={w.get('status', '?')}  history={pts}pts")
+        return
+
+    if args.remove:
+        if remove_watcher(store_path, args.remove):
+            print(f"  Removed watcher: {args.remove}")
+        else:
+            print(f"  Watcher not found: {args.remove}")
+        return
+
+    if not args.ticker:
+        print("ERROR: ticker is required. Use: runner.py watch <TICKER>", file=sys.stderr)
+        sys.exit(1)
+
+    run_watcher(
+        ticker=args.ticker,
+        host=host,
+        poll_interval=poll_interval,
+        max_history=max_history,
+        store_path=store_path,
+        entry_cents=args.entry,
+        side=args.side,
+        contracts=args.contracts,
+        stop_cents=args.stop,
+        take_profit_cents=args.tp,
+    )
+
+
 def cmd_run_strategy(client, args):
     """Dynamically load and run a strategy module."""
     strategy_name = args.strategy_name
@@ -560,6 +613,18 @@ def build_parser() -> argparse.ArgumentParser:
     strat_p.add_argument("--ticker", help="Ticker to pass to strategy")
     strat_p.add_argument("extra", nargs=argparse.REMAINDER, help="Extra args forwarded to strategy")
 
+    # ── watch ─────────────────────────────────────────────────────────────
+    watch_p = sub.add_parser("watch", help="Start a position price watcher")
+    watch_p.add_argument("ticker", nargs="?", default=None, help="Market ticker to watch")
+    watch_p.add_argument("--entry", type=int, default=0, help="Entry price in cents")
+    watch_p.add_argument("--side", default="LONG", choices=["LONG", "SHORT"], help="Position side")
+    watch_p.add_argument("--contracts", type=int, default=0, help="Number of contracts")
+    watch_p.add_argument("--stop", type=int, default=0, help="Stop price in cents")
+    watch_p.add_argument("--tp", type=int, default=0, help="Take profit price in cents")
+    watch_p.add_argument("--interval", type=float, default=None, help="Poll interval in seconds")
+    watch_p.add_argument("--list", action="store_true", dest="watch_list", help="List active watchers")
+    watch_p.add_argument("--remove", metavar="TICKER", default=None, help="Remove a watcher")
+
     return parser
 
 
@@ -581,6 +646,7 @@ COMMAND_MAP = {
     "balance": cmd_balance,
     "fills": cmd_fills,
     "run-strategy": cmd_run_strategy,
+    "watch": cmd_watch,
 }
 
 
@@ -596,8 +662,11 @@ def main():
         file_cfg.update({k: v for k, v in cfg.items() if v is not None})
         cfg = file_cfg
 
-    # Build client
-    client = build_client(cfg)
+    # Build client (watch command doesn't need SDK auth)
+    if args.command == "watch":
+        client = None
+    else:
+        client = build_client(cfg)
 
     # Dispatch
     handler = COMMAND_MAP.get(args.command)
