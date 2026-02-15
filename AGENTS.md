@@ -164,11 +164,16 @@ When the user asks you to find a trade or evaluate an opportunity, follow this s
 | Using `json.dumps()` on SDK responses | Runner handles serialization; use `runner.py markets get` |
 | Running `.venv/bin/python` without `cd {baseDir}` first | Always prefix with `cd {baseDir} &&` |
 | Assuming an order filled without checking | Run `runner.py orders` or `runner.py fills` to confirm |
-| Empty orderbook data | Default host is `api.kalshi.com`; if still empty, check the market ticker is valid and the market is open |
+| Empty orderbook data | Check the market is `open`/`active`, the ticker is valid, and the market isn't a multi-event summary. Some markets genuinely have thin/no books. |
 
 ### API Host
 
-The default host is `https://api.kalshi.com/trade-api/v2` (production, authenticated, full orderbook depth). Do NOT use `api.elections.kalshi.com` — it may return empty orderbooks for some markets. Override via `host` in config.yaml or the `KALSHI_HOST` env var. For sandbox testing, use `https://demo-api.kalshi.co/trade-api/v2`.
+The default host is `https://api.elections.kalshi.com/trade-api/v2` (production — covers ALL markets, not just elections). Override via `host` in config.yaml or `KALSHI_HOST` env var. For sandbox testing use `https://demo-api.kalshi.co/trade-api/v2`.
+
+If the orderbook comes back empty for a valid open market, the issue is likely:
+1. The market is a multivariate event (combo) — these don't have standalone orderbooks
+2. The market genuinely has no resting orders
+3. The market is not in `open` status — check with `runner.py markets get <TICKER>`
 
 ## What the Four Gates Mean (Plain English)
 

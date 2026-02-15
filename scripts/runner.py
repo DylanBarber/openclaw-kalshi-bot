@@ -34,7 +34,7 @@ import yaml
 # Config helpers
 # ---------------------------------------------------------------------------
 
-DEFAULT_HOST = "https://api.kalshi.com/trade-api/v2"
+DEFAULT_HOST = "https://api.elections.kalshi.com/trade-api/v2"
 CONFIG_FILENAME = "config.yaml"
 
 
@@ -249,6 +249,23 @@ def cmd_orderbook(client, args):
     ob = resp.orderbook if hasattr(resp, "orderbook") else resp
 
     yes_raw, no_raw = _extract_ob_levels(ob)
+
+    if not yes_raw and not no_raw:
+        # Diagnostics: help the agent understand WHY the book is empty
+        print(f"\n  Orderbook: {args.ticker}  (depth={args.depth})")
+        print(f"  ** EMPTY — no YES or NO levels returned **")
+        print(f"  Possible reasons:")
+        print(f"    - Market has no resting orders (genuinely empty book)")
+        print(f"    - Market is not open (check: runner.py markets get {args.ticker})")
+        print(f"    - Ticker is a multivariate event / combo (no standalone book)")
+        # Dump the raw response for debugging
+        print(f"\n  Raw response type: {type(ob).__name__}")
+        if hasattr(ob, "to_dict"):
+            print(f"  Raw to_dict(): {ob.to_dict()}")
+        elif hasattr(ob, "__dict__"):
+            print(f"  Raw __dict__: {ob.__dict__}")
+        print()
+        return
 
     yes_levels = [_level_to_cents(l) for l in yes_raw]
     no_levels = [_level_to_cents(l) for l in no_raw]

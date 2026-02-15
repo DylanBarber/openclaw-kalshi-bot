@@ -7,16 +7,11 @@
 api_key_id: "your-api-key-id-here"
 private_key_path: "~/.kalshi/private_key.pem"
 
-# API host (default: api.kalshi.com — the production authenticated endpoint)
+# API host (default: api.elections.kalshi.com)
 # Uncomment to override:
-# host: "https://api.kalshi.com/trade-api/v2"
+# host: "https://api.elections.kalshi.com/trade-api/v2"
 #
-# Other hosts:
-#   Production (public data only): https://api.elections.kalshi.com/trade-api/v2
-#   Demo/sandbox:                  https://demo-api.kalshi.co/trade-api/v2
-#
-# NOTE: api.elections.kalshi.com may return empty orderbooks for some markets.
-#       api.kalshi.com is recommended for authenticated trading with full depth.
+# Demo/sandbox: https://demo-api.kalshi.co/trade-api/v2
 
 # ── Risk & trading doctrine parameters ─────────────────────────────────
 risk:

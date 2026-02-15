@@ -118,6 +118,13 @@ def _parse_book(client: Any, ticker: str, depth: int = 20) -> dict[str, Any]:
 
     raw_yes, raw_no = _extract_ob_levels(ob)
 
+    if not raw_yes and not raw_no:
+        print(f"  WARNING: Orderbook for {ticker} is completely empty.")
+        print(f"  This may mean the market has no resting orders, is not open,")
+        print(f"  or is a multivariate/combo market without a standalone book.")
+        if hasattr(ob, "to_dict"):
+            print(f"  Raw response: {ob.to_dict()}")
+
     yes_levels = [_level_to_cents(l) for l in raw_yes]
     no_levels = [_level_to_cents(l) for l in raw_no]
 
