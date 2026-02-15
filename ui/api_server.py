@@ -68,22 +68,85 @@ def _get_store_path(config: dict) -> Path:
 # ── Kalshi client (lazy init) ────────────────────────────────────────────
 
 _kalshi_client = None
+_client_init_failed = False
+
+
+def _build_client_direct(config: dict):
+    """Build Kalshi client directly without importing runner.py.
+
+    Tries multiple import paths to handle lazy_imports quirks in kalshi-python.
+    """
+    # Try various import strategies for Configuration + KalshiClient
+    Configuration = None
+    KalshiClient = None
+
+    # Strategy 1: top-level import
+    try:
+        from kalshi_python import Configuration as _Cfg, KalshiClient as _Cli
+        Configuration, KalshiClient = _Cfg, _Cli
+    except (ImportError, AttributeError):
+        pass
+
+    # Strategy 2: submodule imports
+    if Configuration is None:
+        try:
+            from kalshi_python.configuration import Configuration as _Cfg
+            Configuration = _Cfg
+        except (ImportError, AttributeError):
+            pass
+
+    if KalshiClient is None:
+        try:
+            from kalshi_python.kalshi_client import KalshiClient as _Cli
+            KalshiClient = _Cli
+        except (ImportError, AttributeError):
+            pass
+
+    if Configuration is None or KalshiClient is None:
+        raise ImportError(
+            "Could not import Configuration/KalshiClient from kalshi_python. "
+            "Try: pip install --force-reinstall kalshi-python"
+        )
+
+    host = config.get("host", DEFAULT_HOST)
+    cfg = Configuration(host=host)
+
+    api_key_id = config.get("api_key_id") or os.environ.get("KALSHI_API_KEY_ID")
+    private_key_pem = config.get("private_key_pem") or os.environ.get("KALSHI_PRIVATE_KEY_PEM")
+    private_key_path = config.get("private_key_path") or os.environ.get("KALSHI_PRIVATE_KEY_PATH")
+
+    if not api_key_id:
+        raise ValueError("api_key_id not set in config.yaml or KALSHI_API_KEY_ID env var")
+
+    cfg.api_key_id = api_key_id
+
+    if private_key_pem:
+        cfg.private_key_pem = private_key_pem
+    elif private_key_path:
+        key_file = Path(private_key_path).expanduser()
+        if not key_file.is_file():
+            raise FileNotFoundError(f"Private key file not found: {key_file}")
+        cfg.private_key_pem = key_file.read_text()
+    else:
+        raise ValueError("No private key configured (private_key_path or private_key_pem)")
+
+    return KalshiClient(cfg)
 
 
 def _get_client(config: dict):
-    """Build Kalshi SDK client, cached."""
-    global _kalshi_client
+    """Build Kalshi SDK client, cached. Returns None on failure."""
+    global _kalshi_client, _client_init_failed
     if _kalshi_client is not None:
         return _kalshi_client
+    if _client_init_failed:
+        return None
 
     try:
-        sys.path.insert(0, _scripts_dir)
-        from runner import build_client, load_config
-        cfg = load_config()
-        _kalshi_client = build_client(cfg)
+        _kalshi_client = _build_client_direct(config)
     except Exception as e:
         print(f"  WARNING: Could not build Kalshi client: {e}", file=sys.stderr)
         _kalshi_client = None
+        _client_init_failed = True
 
     return _kalshi_client
 
