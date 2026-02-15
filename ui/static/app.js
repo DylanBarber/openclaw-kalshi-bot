@@ -270,14 +270,44 @@ async function loadOrderbook(ticker) {
   }
 }
 
+// ── Orders table ─────────────────────────────────────────────────────────
+
+async function refreshOrders() {
+  const data = await api("/api/orders");
+  const tbody = document.getElementById("orders-body");
+
+  if (!data || data.error || !data.orders || !data.orders.length) {
+    tbody.innerHTML = '<tr><td colspan="8" class="empty-msg">No resting orders</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = data.orders.map(o => {
+    const price = o.yes_price != null ? o.yes_price + "c (YES)" :
+                  o.no_price != null ? o.no_price + "c (NO)" : "--";
+    const created = o.created_time ? new Date(o.created_time).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",second:"2-digit"}) : "--";
+    const statusClass = o.status === "resting" ? "status-active" : "";
+
+    return `<tr>
+      <td class="ticker-cell">${o.ticker}</td>
+      <td>${o.side || "--"}</td>
+      <td>${o.action || "--"}</td>
+      <td>${price}</td>
+      <td>${o.count || 0}</td>
+      <td>${o.remaining_count || 0}</td>
+      <td><span class="status-badge ${statusClass}">${o.status}</span></td>
+      <td>${created}</td>
+    </tr>`;
+  }).join("");
+}
+
 // ── Positions table ──────────────────────────────────────────────────────
 
 async function refreshPositions() {
   const data = await api("/api/positions");
   const tbody = document.getElementById("positions-body");
 
-  if (!data || data.error || !data.positions.length) {
-    tbody.innerHTML = '<tr><td colspan="4" class="empty-msg">No positions</td></tr>';
+  if (!data || data.error || !data.positions || !data.positions.length) {
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-msg">No positions</td></tr>';
     return;
   }
 
@@ -285,8 +315,11 @@ async function refreshPositions() {
     <tr>
       <td class="ticker-cell">${p.ticker}</td>
       <td>${p.position}</td>
-      <td>${p.market_exposure != null ? dollars(p.market_exposure) : "--"}</td>
+      <td>${p.resting_order_count || 0}</td>
+      <td>${p.total_cost != null ? dollars(p.total_cost) : "--"}</td>
+      <td>${p.fees_paid != null ? dollars(p.fees_paid) : "--"}</td>
       <td class="${pnlClass(p.realized_pnl)}">${p.realized_pnl != null ? dollars(p.realized_pnl) : "--"}</td>
+      <td>${p.market_result || "--"}</td>
     </tr>
   `).join("");
 }
@@ -297,6 +330,7 @@ async function tick() {
   await Promise.all([
     refreshBalance(),
     refreshWatchers(),
+    refreshOrders(),
     refreshPositions(),
   ]);
 

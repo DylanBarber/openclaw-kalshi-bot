@@ -213,18 +213,53 @@ def api_positions():
 
     try:
         resp = client.get_positions(limit=100)
-        positions = getattr(resp, "market_positions", None) or getattr(resp, "positions", []) or []
+        positions = getattr(resp, "positions", []) or []
 
         result = []
         for p in positions:
             result.append({
-                "ticker": getattr(p, "ticker", getattr(p, "market_ticker", "?")),
+                "ticker": getattr(p, "ticker", "?"),
+                "event_ticker": getattr(p, "event_ticker", ""),
                 "position": getattr(p, "position", 0),
-                "market_exposure": getattr(p, "market_exposure", 0),
+                "resting_order_count": getattr(p, "resting_order_count", 0),
                 "realized_pnl": getattr(p, "realized_pnl", 0),
-                "total_traded": getattr(p, "total_traded", 0),
+                "fees_paid": getattr(p, "fees_paid", 0),
+                "total_cost": getattr(p, "total_cost", 0),
+                "market_result": getattr(p, "market_result", ""),
             })
         return jsonify({"positions": result})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/orders")
+def api_orders():
+    config = _load_project_config()
+    client = _get_client(config)
+    if client is None:
+        return jsonify({"error": "Kalshi client not configured"}), 503
+
+    try:
+        status_filter = request.args.get("status", "resting")
+        resp = client.get_orders(status=status_filter, limit=100)
+        orders = getattr(resp, "orders", []) or []
+
+        result = []
+        for o in orders:
+            result.append({
+                "order_id": getattr(o, "order_id", "?"),
+                "ticker": getattr(o, "ticker", "?"),
+                "side": getattr(o, "side", ""),
+                "action": getattr(o, "action", ""),
+                "type": getattr(o, "type", ""),
+                "status": getattr(o, "status", ""),
+                "yes_price": getattr(o, "yes_price", None),
+                "no_price": getattr(o, "no_price", None),
+                "count": getattr(o, "count", 0),
+                "remaining_count": getattr(o, "remaining_count", 0),
+                "created_time": str(getattr(o, "created_time", "")),
+            })
+        return jsonify({"orders": result})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
