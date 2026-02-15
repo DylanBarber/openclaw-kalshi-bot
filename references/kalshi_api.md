@@ -26,7 +26,9 @@ client = KalshiClient(config)
 
 ### get_markets filters
 
-- `status` — `"open"`, `"closed"`, `"settled"`, `"determined"`, `"initialized"` (comma-sep)
+- `status` — **Query filter values** (what you send): `unopened`, `open`, `paused`, `closed`, `settled`
+  - NOTE: These are DIFFERENT from **response status values** (what the market object returns): `initialized`, `inactive`, `active`, `closed`, `determined`, `disputed`, `amended`, `finalized`
+  - Do NOT pass `active` or `determined` as a filter — the API will return "invalid status filter"
 - `event_ticker` / `series_ticker` — filter by event or series
 - `tickers` — comma-separated market tickers
 - `min_close_ts` / `max_close_ts` — Unix timestamps

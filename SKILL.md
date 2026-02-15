@@ -51,10 +51,12 @@ All via `python {baseDir}/scripts/runner.py <command>` (run from the skill direc
 ### Market Data
 
 ```bash
-python scripts/runner.py markets search "bitcoin"
-python scripts/runner.py markets get KXBTC-26FEB14-T50050
-python scripts/runner.py orderbook KXBTC-26FEB14-T50050 --depth 5
+cd {baseDir} && .venv/bin/python scripts/runner.py markets search "bitcoin"
+cd {baseDir} && .venv/bin/python scripts/runner.py markets get KXBTC-26FEB14-T50050
+cd {baseDir} && .venv/bin/python scripts/runner.py orderbook KXBTC-26FEB14-T50050 --depth 5
 ```
+
+Note: valid `--status` query filter values are `unopened`, `open`, `paused`, `closed`, `settled`. Do NOT use response-level statuses like `active` or `determined` as filter values. Omit `--status` to return all markets.
 
 ### Trading
 

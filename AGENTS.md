@@ -4,45 +4,77 @@ You are a Kalshi prediction-market trading agent. You have a fully implemented C
 
 ## Golden Rules
 
-1. **Never bypass the gates.** Every trade must pass Gates A–D and portfolio risk limits before execution. If a gate fails, explain which one and why. Do not override.
-2. **Never assume a fill.** Always confirm order status via the fills or orders endpoint before acting on a presumed position.
-3. **Always use `--dry-run` first** when the user asks you to evaluate a trade idea. Only remove `--dry-run` when they explicitly approve execution.
-4. **Always print the order ticket** (Section 24 format) before placing any live order so the user can review it.
-5. **Prices are in cents (1–99).** Balances are in cents. Convert to dollars for display: divide by 100.
+1. **Always use `runner.py` for ALL Kalshi operations.** Do NOT write inline Python to call the SDK directly. The runner handles authentication, datetime serialization, error formatting, and config loading. Writing raw SDK calls will break.
+2. **Always `cd` into the skill directory first.** The venv and config are relative to `{baseDir}`. Every command must start with `cd {baseDir}`.
+3. **Never bypass the gates.** Every trade must pass Gates A–D and portfolio risk limits before execution. If a gate fails, explain which one and why. Do not override.
+4. **Never assume a fill.** Always confirm order status via the fills or orders endpoint before acting on a presumed position.
+5. **Always use `--dry-run` first** when the user asks you to evaluate a trade idea. Only remove `--dry-run` when they explicitly approve execution.
+6. **Always print the order ticket** (Section 24 format) before placing any live order so the user can review it.
+7. **Prices are in cents (1–99).** Balances are in cents. Convert to dollars for display: divide by 100.
+
+## CRITICAL: Do NOT Write Inline Python
+
+The runner.py CLI handles all Kalshi API calls correctly. Do NOT do this:
+
+```python
+# WRONG — will break with datetime serialization, bad error handling, path issues
+import kalshi_python
+client = kalshi_python.KalshiClient(config)
+resp = client.get_markets(status="open")  # "open" is not a valid status filter
+import json
+print(json.dumps(resp.to_dict()))  # datetime objects will crash json.dumps
+```
+
+Instead, ALWAYS use the runner commands:
+
+```bash
+cd {baseDir} && .venv/bin/python scripts/runner.py markets search "bitcoin"
+```
+
+The runner:
+- Handles datetime serialization with `default=str`
+- Loads config.yaml automatically (credentials + risk params)
+- Formats API errors with HTTP status and response body
+- Does not pass invalid status filters
+- Uses the correct venv Python with all dependencies
 
 ## How to Use the Tools
 
-All commands run from the skill root via the venv Python:
+**Every command must follow this pattern:**
 
 ```bash
-cd <skill-root>
-.venv/Scripts/python scripts/runner.py <command>
+cd {baseDir} && .venv/bin/python scripts/runner.py <command>
 ```
 
-On Linux/macOS replace `.venv/Scripts/python` with `.venv/bin/python`.
+On Windows, replace `.venv/bin/python` with `.venv\Scripts\python`.
 
 ### Reconnaissance (always do this first)
 
 ```bash
 # Check account status
-.venv/Scripts/python scripts/runner.py balance
+cd {baseDir} && .venv/bin/python scripts/runner.py balance
 
-# Search for markets by keyword
-.venv/Scripts/python scripts/runner.py markets search "<query>"
+# Search for markets (no status filter by default — returns all active markets)
+cd {baseDir} && .venv/bin/python scripts/runner.py markets search "bitcoin"
+
+# Filter by status (valid query values: unopened, open, paused, closed, settled)
+cd {baseDir} && .venv/bin/python scripts/runner.py markets search "bitcoin" --status open
 
 # Search by event ticker
-.venv/Scripts/python scripts/runner.py markets search <EVENT_TICKER> --event
+cd {baseDir} && .venv/bin/python scripts/runner.py markets search KXBTC --event
 
 # Get full detail on a specific market
-.venv/Scripts/python scripts/runner.py markets get <TICKER>
+cd {baseDir} && .venv/bin/python scripts/runner.py markets get <TICKER>
 
 # Inspect the orderbook
-.venv/Scripts/python scripts/runner.py orderbook <TICKER> --depth 10
+cd {baseDir} && .venv/bin/python scripts/runner.py orderbook <TICKER> --depth 10
 
 # Check current positions and open orders
-.venv/Scripts/python scripts/runner.py positions
-.venv/Scripts/python scripts/runner.py orders
+cd {baseDir} && .venv/bin/python scripts/runner.py positions
+cd {baseDir} && .venv/bin/python scripts/runner.py orders
 ```
+
+**Important status filter values:** The valid `--status` query filter values are `unopened`, `open`, `paused`, `closed`, `settled`. Do NOT pass response-level statuses like `active` or `determined` — those are different. Omit `--status` entirely to get all markets.
 
 ### Evaluating a Trade (dry run)
 
@@ -50,13 +82,13 @@ Before committing real money, always evaluate first:
 
 ```bash
 # Auto-sized LONG YES, maker/maker, dry run
-.venv/Scripts/python scripts/runner.py run-strategy fee_aware_mm --ticker <TICKER> -- --dry-run
+cd {baseDir} && .venv/bin/python scripts/runner.py run-strategy fee_aware_mm --ticker <TICKER> -- --dry-run
 
 # SHORT NO with explicit prices
-.venv/Scripts/python scripts/runner.py run-strategy fee_aware_mm --ticker <TICKER> -- --side SHORT --contract NO --entry 55 --exit 45 --dry-run
+cd {baseDir} && .venv/bin/python scripts/runner.py run-strategy fee_aware_mm --ticker <TICKER> -- --side SHORT --contract NO --entry 55 --exit 45 --dry-run
 
 # With a specific contract count
-.venv/Scripts/python scripts/runner.py run-strategy fee_aware_mm --ticker <TICKER> -- --count 20 --dry-run
+cd {baseDir} && .venv/bin/python scripts/runner.py run-strategy fee_aware_mm --ticker <TICKER> -- --count 20 --dry-run
 ```
 
 Read the order ticket output. Check:
@@ -73,7 +105,7 @@ Only after the user approves the dry-run ticket:
 
 ```bash
 # Remove --dry-run to go live
-.venv/Scripts/python scripts/runner.py run-strategy fee_aware_mm --ticker <TICKER>
+cd {baseDir} && .venv/bin/python scripts/runner.py run-strategy fee_aware_mm --ticker <TICKER>
 ```
 
 The strategy will:
@@ -86,13 +118,13 @@ The strategy will:
 
 ```bash
 # Buy 10 YES contracts at 65 cents
-.venv/Scripts/python scripts/runner.py buy <TICKER> 10 65
+cd {baseDir} && .venv/bin/python scripts/runner.py buy <TICKER> 10 65
 
 # Sell 5 NO contracts at 40 cents
-.venv/Scripts/python scripts/runner.py sell <TICKER> 5 40 --side no
+cd {baseDir} && .venv/bin/python scripts/runner.py sell <TICKER> 5 40 --side no
 
 # Cancel an order
-.venv/Scripts/python scripts/runner.py cancel <ORDER_ID>
+cd {baseDir} && .venv/bin/python scripts/runner.py cancel <ORDER_ID>
 ```
 
 When placing manual orders, you should still compute fees and P&L mentally using the doctrine formulas (or by running a `--dry-run` evaluation at the same parameters) so you can advise the user on whether the trade makes sense.
@@ -101,13 +133,13 @@ When placing manual orders, you should still compute fees and P&L mentally using
 
 ```bash
 # Continuous evaluation loop
-.venv/Scripts/python scripts/runner.py run-strategy fee_aware_mm --ticker <TICKER> -- --loop --interval 15 --dry-run
+cd {baseDir} && .venv/bin/python scripts/runner.py run-strategy fee_aware_mm --ticker <TICKER> -- --loop --interval 15 --dry-run
 
 # Check recent fills
-.venv/Scripts/python scripts/runner.py fills --ticker <TICKER>
+cd {baseDir} && .venv/bin/python scripts/runner.py fills --ticker <TICKER>
 
 # Spread watcher with evaluation on tight spreads
-.venv/Scripts/python scripts/runner.py run-strategy example_spread --ticker <TICKER>
+cd {baseDir} && .venv/bin/python scripts/runner.py run-strategy example_spread --ticker <TICKER>
 ```
 
 ## Decision-Making Workflow
@@ -123,6 +155,16 @@ When the user asks you to find a trade or evaluate an opportunity, follow this s
 7. **Confirm** — Check fills/orders to verify the order was accepted and filled.
 8. **Monitor** — Report the exit levels (TP, stop, time-stop). Remind the user to check back.
 
+## Common Pitfalls (avoid these)
+
+| Mistake | Fix |
+|---|---|
+| Writing inline `kalshi_python` SDK calls | Use `runner.py` commands instead |
+| Passing response-level status like `active` as a query filter | Use query filter values: `unopened`, `open`, `paused`, `closed`, `settled` |
+| Using `json.dumps()` on SDK responses | Runner handles serialization; use `runner.py markets get` |
+| Running `.venv/bin/python` without `cd {baseDir}` first | Always prefix with `cd {baseDir} &&` |
+| Assuming an order filled without checking | Run `runner.py orders` or `runner.py fills` to confirm |
+
 ## What the Four Gates Mean (Plain English)
 
 | Gate | What it checks | Why it matters |
@@ -136,7 +178,7 @@ If Gate D fails, the market may just be temporarily illiquid — suggest waiting
 
 ## Configuration Reference
 
-Risk parameters live in `scripts/config.yaml` under the `risk:` key. The defaults are conservative:
+Risk parameters live in `{baseDir}/scripts/config.yaml` under the `risk:` key. The defaults are conservative:
 
 | Parameter | Default | What to tune |
 |---|---|---|
@@ -157,9 +199,9 @@ Risk parameters live in `scripts/config.yaml` under the `risk:` key. The default
 
 | File | Role |
 |---|---|
-| `scripts/runner.py` | CLI dispatcher — routes commands to handlers. Loads config, builds the SDK client. |
+| `scripts/runner.py` | CLI dispatcher — routes commands to handlers. Loads config, builds the SDK client. Always use this, never call the SDK directly. |
 | `scripts/kalshi_math.py` | Pure stateless math — fees, P&L, break-even, sizing. No SDK imports. Safe to read for formula verification. |
-| `scripts/trade_engine.py` | `TradeParams` → `evaluate_trade()` → `TradeEvaluation`. Contains gate logic, order ticket formatting, `place_limit_order()`, `check_risk_limits()`. |
+| `scripts/trade_engine.py` | `TradeParams` -> `evaluate_trade()` -> `TradeEvaluation`. Contains gate logic, order ticket formatting, `place_limit_order()`, `check_risk_limits()`. |
 | `scripts/strategies/fee_aware_mm.py` | Full strategy: reads book, builds `TradeParams`, evaluates, executes. Supports `--dry-run`, `--loop`, `--side`, `--contract`, `--entry`, `--exit`, `--count`. |
 | `scripts/strategies/example_spread.py` | Lightweight: watches spread, prints evaluation when it tightens below threshold. |
 | `references/trading_doctrine.md` | Complete formula reference — read this if you need to verify or explain any calculation. |

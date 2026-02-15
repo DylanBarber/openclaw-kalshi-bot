@@ -3,7 +3,7 @@
 Kalshi Bot CLI – trade prediction markets from the command line.
 
 Usage:
-    python runner.py markets search <query> [--status open] [--limit 20]
+    python runner.py markets search <query> [--status active] [--limit 20]
     python runner.py markets get <ticker>
     python runner.py orderbook <ticker> [--depth 10]
     python runner.py buy <ticker> <count> <price> [--side yes]
@@ -124,11 +124,17 @@ def _cents_to_dollars(cents: int | None) -> str:
 
 
 def _pp(obj: Any) -> None:
-    """Pretty-print an SDK response object."""
-    if hasattr(obj, "to_dict"):
-        print(json.dumps(obj.to_dict(), indent=2, default=str))
-    else:
-        print(json.dumps(obj, indent=2, default=str))
+    """Pretty-print an SDK response object (handles datetime, etc.)."""
+    try:
+        if hasattr(obj, "to_dict"):
+            print(json.dumps(obj.to_dict(), indent=2, default=str))
+        elif hasattr(obj, "__dict__"):
+            print(json.dumps(obj.__dict__, indent=2, default=str))
+        else:
+            print(json.dumps(obj, indent=2, default=str))
+    except (TypeError, ValueError):
+        from pprint import pprint
+        pprint(obj)
 
 
 # ---------------------------------------------------------------------------
@@ -381,7 +387,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     search_p = markets_sub.add_parser("search", help="Search / list markets")
     search_p.add_argument("query", nargs="?", default=None, help="Free-text search query")
-    search_p.add_argument("--status", default="open", help="Market status filter (default: open)")
+    search_p.add_argument("--status", default=None, help="Market status filter: unopened, open, paused, closed, settled")
     search_p.add_argument("--limit", type=int, default=20, help="Max results (default: 20)")
     search_p.add_argument("--series", action="store_true", help="Treat query as series_ticker")
     search_p.add_argument("--event", action="store_true", help="Treat query as event_ticker")
@@ -489,7 +495,13 @@ def main():
     try:
         handler(client, args)
     except Exception as e:
-        print(f"ERROR: {e}", file=sys.stderr)
+        # Extract useful info from Kalshi API errors
+        body = getattr(e, "body", None)
+        status = getattr(e, "status", None)
+        if status and body:
+            print(f"ERROR (HTTP {status}): {body}", file=sys.stderr)
+        else:
+            print(f"ERROR: {e}", file=sys.stderr)
         if os.getenv("KALSHI_DEBUG"):
             import traceback
             traceback.print_exc()
