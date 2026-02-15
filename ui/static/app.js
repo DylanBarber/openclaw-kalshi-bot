@@ -23,16 +23,15 @@ function dollars(cents) {
   return "$" + (cents / 100).toFixed(2);
 }
 
+function fmtDollars(val) {
+  if (val == null) return "--";
+  const sign = val >= 0 ? "+" : "";
+  return `${sign}$${val.toFixed(2)}`;
+}
+
 function pnlClass(val) {
   if (val == null) return "";
   return val >= 0 ? "pnl-pos" : "pnl-neg";
-}
-
-function pnlStr(cents, dollarVal) {
-  if (cents == null) return "--";
-  const sign = cents >= 0 ? "+" : "";
-  const d = dollarVal != null ? ` (${sign}$${dollarVal.toFixed(2)})` : "";
-  return `${sign}${cents}c${d}`;
 }
 
 function timeAgo(isoStr) {
@@ -62,7 +61,7 @@ async function refreshWatchers() {
   const tbody = document.getElementById("watchers-body");
 
   if (!data || data.error || !data.watchers.length) {
-    tbody.innerHTML = '<tr><td colspan="11" class="empty-msg">No active watchers</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="13" class="empty-msg">No active watchers</td></tr>';
     document.getElementById("watcher-count").textContent = "0";
     return;
   }
@@ -76,6 +75,10 @@ async function refreshWatchers() {
                         w.status === "stopped" ? "status-stopped" :
                         w.status === "tp_hit" ? "status-tp" : "";
 
+    const grossStr = w.gross_pnl != null ? fmtDollars(w.gross_pnl) : "--";
+    const feesStr = w.fees_worst != null ? fmtDollars(w.fees_worst) : "--";
+    const netStr = w.net_pnl != null ? fmtDollars(w.net_pnl) : "--";
+
     return `<tr class="${rowClass}" data-ticker="${w.ticker}" onclick="selectWatcher('${w.ticker}')">
       <td class="ticker-cell">${w.ticker}</td>
       <td>${w.side}</td>
@@ -83,7 +86,9 @@ async function refreshWatchers() {
       <td>${w.yes_bid != null ? w.yes_bid + "c" : "--"}</td>
       <td>${w.yes_ask != null ? w.yes_ask + "c" : "--"}</td>
       <td>${w.spread != null ? w.spread + "c" : "--"}</td>
-      <td class="${pnlClass(w.pnl_cents)}">${pnlStr(w.pnl_cents, w.pnl_dollars)}</td>
+      <td class="${pnlClass(w.gross_pnl)}">${grossStr}</td>
+      <td class="fees-cell">${feesStr}</td>
+      <td class="${pnlClass(w.net_pnl)}">${netStr}</td>
       <td>${w.stop_cents || "--"}c</td>
       <td>${w.take_profit_cents || "--"}c</td>
       <td><span class="status-badge ${statusClass}">${w.status}</span></td>

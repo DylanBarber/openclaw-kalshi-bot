@@ -175,6 +175,30 @@ def poll_once(
         "spread": spread,
     }
 
+    # Compute fee-aware P&L if we have entry price and current bid
+    entry_cents = entry.get("entry_cents", 0)
+    contracts = entry.get("contracts", 0)
+    side = entry.get("side", "LONG")
+
+    if best_yes_bid is not None and entry_cents and contracts:
+        try:
+            from kalshi_math import (
+                gross_pnl_usd, compute_worst_case_fees, net_pnl, slippage_usd,
+            )
+            current_exit = best_yes_bid if side == "LONG" else best_yes_ask or best_yes_bid
+            gross = gross_pnl_usd(side, contracts, entry_cents, current_exit)
+            _, _, fee_worst = compute_worst_case_fees(
+                contracts, entry_cents, current_exit, ticker, False,
+            )
+            slip = slippage_usd(contracts, 1)  # 1c default buffer
+            net = net_pnl(gross, fee_worst, slip)
+
+            snapshot["gross_pnl"] = round(gross, 4)
+            snapshot["fees_worst"] = round(fee_worst, 4)
+            snapshot["net_pnl"] = round(net, 4)
+        except Exception:
+            pass  # kalshi_math not available; skip
+
     entry["current"] = snapshot
     entry["history"].append(snapshot)
 
@@ -276,14 +300,25 @@ def run_watcher(
             spread_s = f"{spread}c" if spread is not None else "--"
 
             pnl_str = ""
-            if entry_cents and bid is not None:
+            gross = snap.get("gross_pnl")
+            net = snap.get("net_pnl")
+            fees = snap.get("fees_worst")
+            if gross is not None:
+                g_sign = "+" if gross >= 0 else ""
+                n_sign = "+" if net is not None and net >= 0 else ""
+                pnl_str = f"  gross={g_sign}${gross:.2f}"
+                if fees is not None:
+                    pnl_str += f"  fees=${fees:.2f}"
+                if net is not None:
+                    pnl_str += f"  net={n_sign}${net:.2f}"
+            elif entry_cents and bid is not None:
                 if side == "LONG":
                     pnl_cents = bid - entry_cents
                 else:
                     pnl_cents = entry_cents - bid
                 pnl_dollars = contracts * pnl_cents / 100.0 if contracts else 0
                 sign = "+" if pnl_cents >= 0 else ""
-                pnl_str = f"  P&L: {sign}{pnl_cents}c ({sign}${pnl_dollars:.2f})"
+                pnl_str = f"  gross={sign}${pnl_dollars:.2f} (no fee calc)"
 
             ts_short = snap["ts"][11:19]
             print(f"  [{ts_short}] {ticker}  bid={bid_s}  ask={ask_s}  spread={spread_s}{pnl_str}")

@@ -284,14 +284,17 @@ def api_watchers():
             yes_bid = cur.get("yes_bid")
             side = w.get("side", "LONG")
 
-            pnl_cents = None
-            pnl_dollars = None
-            if yes_bid is not None and entry_cents:
+            # Gross P&L (raw price move)
+            gross_pnl = cur.get("gross_pnl")
+            net_pnl_val = cur.get("net_pnl")
+            fees_worst = cur.get("fees_worst")
+
+            # Fallback: compute gross from price if snapshot doesn't have it
+            if gross_pnl is None and yes_bid is not None and entry_cents:
                 if side == "LONG":
-                    pnl_cents = yes_bid - entry_cents
+                    gross_pnl = contracts * (yes_bid - entry_cents) / 100.0
                 else:
-                    pnl_cents = entry_cents - yes_bid
-                pnl_dollars = contracts * pnl_cents / 100.0 if contracts else 0
+                    gross_pnl = contracts * (entry_cents - yes_bid) / 100.0
 
             watchers.append({
                 "ticker": ticker,
@@ -302,8 +305,9 @@ def api_watchers():
                 "yes_bid": yes_bid,
                 "yes_ask": cur.get("yes_ask"),
                 "spread": cur.get("spread"),
-                "pnl_cents": pnl_cents,
-                "pnl_dollars": pnl_dollars,
+                "gross_pnl": gross_pnl,
+                "net_pnl": net_pnl_val,
+                "fees_worst": fees_worst,
                 "stop_cents": w.get("stop_cents", 0),
                 "take_profit_cents": w.get("take_profit_cents", 0),
                 "status": w.get("status", "unknown"),

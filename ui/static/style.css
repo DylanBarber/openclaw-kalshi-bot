@@ -221,6 +221,10 @@ tbody tr.selected {
   font-weight: 600;
 }
 
+.fees-cell {
+  color: var(--accent-orange);
+}
+
 /* ── Status badges ───────────────────────────────────────────────────────── */
 
 .status-badge {
