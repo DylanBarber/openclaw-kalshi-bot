@@ -1,0 +1,36 @@
+# Kalshi Bot configuration
+# Copy this file to config.yaml and fill in your credentials.
+#
+# Generate an API key at: https://kalshi.com/account/api-keys
+# The private key is an RSA PEM file downloaded when creating the key.
+
+api_key_id: "your-api-key-id-here"
+private_key_path: "~/.kalshi/private_key.pem"
+
+# Optional overrides:
+# host: "https://api.elections.kalshi.com/trade-api/v2"
+
+# ── Risk & trading doctrine parameters ─────────────────────────────────
+risk:
+  # Hard limits (Section 22)
+  max_capital_at_risk_per_market_usd: 50.0
+  max_total_capital_at_risk_usd: 200.0
+  max_daily_realized_loss_usd: 100.0
+  max_concurrent_positions: 5
+  max_order_rate_per_min: 30
+
+  # Microstructure — Gate D
+  max_spread_cents: 8
+  min_depth_contracts: 5
+
+  # Slippage & safety — Gate C
+  slippage_buffer_cents: 1.0
+  safety_margin_cents: 2
+
+  # Gate B — net profit must be >= fees * this multiplier
+  fee_margin_multiplier: 2.0
+
+  # Default exits (overridden per-trade)
+  default_take_profit_offset_cents: 6
+  default_stop_offset_cents: 4
+  default_max_hold_minutes: 120
