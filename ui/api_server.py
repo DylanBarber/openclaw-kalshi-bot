@@ -18,6 +18,8 @@ import argparse
 import json
 import os
 import sys
+import threading
+import time
 import urllib.request
 import urllib.error
 from datetime import datetime, timezone
@@ -464,6 +466,50 @@ def api_orderbook(ticker):
     })
 
 
+# ── Background watcher poller ─────────────────────────────────────────────
+
+_poller_thread = None
+
+
+def _watcher_poll_loop():
+    """Background thread that polls prices for all active watchers."""
+    from watcher import poll_once, _load_store
+
+    config = _load_project_config()
+    host = _get_host(config)
+    watcher_cfg = config.get("watcher", {})
+    interval = watcher_cfg.get("poll_interval_seconds", 5)
+    max_history = watcher_cfg.get("max_history_points", 500)
+    store_path = _get_store_path(config)
+
+    print(f"  Watcher poller started (every {interval}s)")
+
+    while True:
+        try:
+            store = _load_store(store_path)
+            for ticker, entry in store.items():
+                status = entry.get("status", "watching")
+                if status in ("stopped", "tp_hit"):
+                    continue
+                try:
+                    poll_once(store_path, ticker, host, max_history)
+                except Exception as e:
+                    print(f"  Poll error [{ticker}]: {e}", file=sys.stderr)
+        except Exception as e:
+            print(f"  Poller error: {e}", file=sys.stderr)
+
+        time.sleep(interval)
+
+
+def start_poller():
+    """Start the background watcher poller thread (once)."""
+    global _poller_thread
+    if _poller_thread is not None and _poller_thread.is_alive():
+        return
+    _poller_thread = threading.Thread(target=_watcher_poll_loop, daemon=True)
+    _poller_thread.start()
+
+
 # ── Main ──────────────────────────────────────────────────────────────────
 
 def main():
@@ -473,11 +519,14 @@ def main():
     parser.add_argument("--debug", action="store_true", help="Enable Flask debug mode")
     args = parser.parse_args()
 
+    # Start background watcher poller
+    start_poller()
+
     print(f"  Kalshi Dashboard: http://{args.host}:{args.port}")
     print(f"  Static dir: {_static_dir}")
     print(f"  Press Ctrl-C to stop.\n")
 
-    app.run(host=args.host, port=args.port, debug=args.debug)
+    app.run(host=args.host, port=args.port, debug=args.debug, use_reloader=False)
 
 
 if __name__ == "__main__":
