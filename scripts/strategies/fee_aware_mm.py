@@ -49,24 +49,50 @@ from trade_engine import (  # noqa: E402
 # ── Orderbook parsing helpers ─────────────────────────────────────────────
 
 
-def _extract_ob_levels(ob: Any) -> tuple[list, list]:
-    """Extract YES and NO levels from an orderbook response object.
+def fetch_orderbook_raw(host: str, ticker: str, depth: int = 10) -> dict:
+    """Fetch orderbook via raw HTTP, bypassing the SDK.
 
-    The SDK model uses 'var_true'/'var_false' (because yes/no map to
-    true/false which are reserved in Python). Older versions may use
-    'yes'/'no'. We also try to_dict() as a fallback.
+    The kalshi-python SDK v2.1.4 has a bug: Pydantic aliases map
+    var_true->'true' / var_false->'false', but the API returns 'yes'/'no'.
+    The SDK silently drops all orderbook data.
     """
-    # Try SDK model attributes first (current SDK)
+    import json as _json
+    import urllib.request
+    import urllib.error
+
+    url = f"{host}/markets/{ticker}/orderbook?depth={depth}"
+    req = urllib.request.Request(url)
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = _json.loads(resp.read().decode())
+    except urllib.error.HTTPError as e:
+        body = e.read().decode() if e.fp else ""
+        raise RuntimeError(f"Orderbook HTTP {e.code}: {body}") from e
+
+    ob = data.get("orderbook", data)
+    return {
+        "yes": ob.get("yes") or [],
+        "no": ob.get("no") or [],
+    }
+
+
+def _extract_ob_levels(ob_or_dict: Any) -> tuple[list, list]:
+    """Extract YES and NO levels from an orderbook response.
+
+    Accepts a raw dict (from fetch_orderbook_raw) or SDK response object.
+    """
+    if isinstance(ob_or_dict, dict):
+        return (ob_or_dict.get("yes") or [], ob_or_dict.get("no") or [])
+
+    ob = ob_or_dict
     yes_raw = getattr(ob, "var_true", None)
     no_raw = getattr(ob, "var_false", None)
 
-    # Fallback: older SDK or dict-style
     if yes_raw is None:
         yes_raw = getattr(ob, "yes", None)
     if no_raw is None:
         no_raw = getattr(ob, "no", None)
 
-    # Fallback: try to_dict()
     if yes_raw is None and hasattr(ob, "to_dict"):
         d = ob.to_dict()
         yes_raw = d.get("yes") or d.get("var_true") or d.get("true") or []
@@ -113,17 +139,21 @@ def _parse_book(client: Any, ticker: str, depth: int = 20) -> dict[str, Any]:
         "depth_at_ask": int,
     }
     """
-    resp = client.get_market_orderbook(ticker, depth=depth)
-    ob = resp.orderbook if hasattr(resp, "orderbook") else resp
-
-    raw_yes, raw_no = _extract_ob_levels(ob)
+    # Use raw HTTP to bypass SDK deserialization bug (alias mismatch)
+    host = os.environ.get("KALSHI_HOST", "https://api.elections.kalshi.com/trade-api/v2")
+    try:
+        ob_data = fetch_orderbook_raw(host, ticker, depth=depth)
+        raw_yes, raw_no = _extract_ob_levels(ob_data)
+    except Exception:
+        # Fallback to SDK if raw HTTP fails (e.g. network issue)
+        resp = client.get_market_orderbook(ticker, depth=depth)
+        ob = resp.orderbook if hasattr(resp, "orderbook") else resp
+        raw_yes, raw_no = _extract_ob_levels(ob)
 
     if not raw_yes and not raw_no:
         print(f"  WARNING: Orderbook for {ticker} is completely empty.")
         print(f"  This may mean the market has no resting orders, is not open,")
         print(f"  or is a multivariate/combo market without a standalone book.")
-        if hasattr(ob, "to_dict"):
-            print(f"  Raw response: {ob.to_dict()}")
 
     yes_levels = [_level_to_cents(l) for l in raw_yes]
     no_levels = [_level_to_cents(l) for l in raw_no]

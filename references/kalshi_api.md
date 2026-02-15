@@ -44,12 +44,22 @@ client = KalshiClient(config)
 
 ### get_market_orderbook response
 
-The response has `.orderbook` with two level arrays:
-- **Python SDK attribute names**: `var_true` (YES bids) and `var_false` (NO bids)
-  - NOT `yes`/`no` — those are mapped to `true`/`false` which are reserved in Python
-- Each level is an `OrderbookLevel` with `.price` (float, **dollars** e.g. 0.65) and `.count` (int, contracts)
-- Levels are sorted ascending; best bid is the **last** element
-- Only bids are returned. YES asks are derived: `ask_cents = 100 - no_bid_cents`
+**WARNING: SDK bug in kalshi-python v2.1.4** — The SDK Pydantic model uses
+aliases `var_true -> "true"` and `var_false -> "false"`, but the API returns
+`"yes"` and `"no"` keys.  The SDK silently drops all orderbook data
+(`var_true = None, var_false = None`).  Our code bypasses the SDK for this
+endpoint and uses raw HTTP via `fetch_orderbook_raw()`.
+
+Raw JSON format (from the API):
+```json
+{"orderbook": {"yes": [[price_cents, qty], ...], "no": [[price_cents, qty], ...]}}
+```
+
+- `yes` = YES bids, `no` = NO bids.  Each is `[[price_cents, qty], ...]`
+- Prices are integers in **cents** (1-99)
+- Levels are sorted ascending; best (highest) bid is the **last** element
+- Only bids are returned.  YES asks are derived: `ask_cents = 100 - no_bid_cents`
+- Combo/multivariate markets return `null` for both arrays (no standalone book)
 
 ## Portfolio API
 

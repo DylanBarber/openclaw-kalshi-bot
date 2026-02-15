@@ -188,26 +188,58 @@ def cmd_markets_get(client, args):
     _pp(resp)
 
 
-def _extract_ob_levels(ob: Any) -> tuple[list, list]:
-    """Extract YES and NO levels from an orderbook response object.
+def fetch_orderbook_raw(host: str, ticker: str, depth: int = 10) -> dict:
+    """Fetch orderbook via raw HTTP, bypassing the SDK.
 
-    The SDK model uses 'var_true'/'var_false' (because yes/no map to
-    true/false which are reserved in Python). Older versions may use
-    'yes'/'no'. We also try to_dict() as a fallback.
+    The kalshi-python SDK v2.1.4 has a bug: the Pydantic model aliases
+    map var_true->'true' and var_false->'false', but the API returns
+    'yes'/'no' keys.  The SDK silently drops the data.  This function
+    hits the public endpoint directly and returns the raw JSON dict.
 
-    Each level is an OrderbookLevel with .price (float, dollars) and .count (int).
+    Returns: {"yes": [[price_cents, qty], ...], "no": [[price_cents, qty], ...]}
     """
-    # Try SDK model attributes first (current SDK)
+    import urllib.request
+    import urllib.error
+
+    url = f"{host}/markets/{ticker}/orderbook?depth={depth}"
+    req = urllib.request.Request(url)
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode())
+    except urllib.error.HTTPError as e:
+        body = e.read().decode() if e.fp else ""
+        raise RuntimeError(f"Orderbook HTTP {e.code}: {body}") from e
+
+    ob = data.get("orderbook", data)
+    return {
+        "yes": ob.get("yes") or [],
+        "no": ob.get("no") or [],
+    }
+
+
+def _extract_ob_levels(ob_or_dict: Any) -> tuple[list, list]:
+    """Extract YES and NO levels from an orderbook response.
+
+    Accepts either a raw dict (from fetch_orderbook_raw) or an SDK
+    response object (with fallback chain for the broken alias mapping).
+    """
+    # If it's already a plain dict (from fetch_orderbook_raw)
+    if isinstance(ob_or_dict, dict):
+        return (ob_or_dict.get("yes") or [], ob_or_dict.get("no") or [])
+
+    ob = ob_or_dict
+
+    # Try SDK model attributes
     yes_raw = getattr(ob, "var_true", None)
     no_raw = getattr(ob, "var_false", None)
 
-    # Fallback: older SDK or dict-style
+    # Fallback: direct yes/no attributes
     if yes_raw is None:
         yes_raw = getattr(ob, "yes", None)
     if no_raw is None:
         no_raw = getattr(ob, "no", None)
 
-    # Fallback: try to_dict()
+    # Fallback: to_dict()
     if yes_raw is None and hasattr(ob, "to_dict"):
         d = ob.to_dict()
         yes_raw = d.get("yes") or d.get("var_true") or d.get("true") or []
@@ -245,25 +277,29 @@ def _level_to_cents(level: Any) -> tuple[int, int]:
 
 def cmd_orderbook(client, args):
     """Display the orderbook for a market."""
-    resp = client.get_market_orderbook(args.ticker, depth=args.depth)
-    ob = resp.orderbook if hasattr(resp, "orderbook") else resp
+    # Use raw HTTP to bypass SDK deserialization bug (var_true/var_false alias mismatch)
+    cfg = load_config()
+    host = cfg.get("host", DEFAULT_HOST)
+    try:
+        ob_data = fetch_orderbook_raw(host, args.ticker, depth=args.depth)
+    except Exception as e:
+        print(f"  Raw HTTP fetch failed ({e}), falling back to SDK...")
+        resp = client.get_market_orderbook(args.ticker, depth=args.depth)
+        ob = resp.orderbook if hasattr(resp, "orderbook") else resp
+        ob_data = None
 
-    yes_raw, no_raw = _extract_ob_levels(ob)
+    if ob_data is not None:
+        yes_raw, no_raw = _extract_ob_levels(ob_data)
+    else:
+        yes_raw, no_raw = _extract_ob_levels(ob)
 
     if not yes_raw and not no_raw:
-        # Diagnostics: help the agent understand WHY the book is empty
         print(f"\n  Orderbook: {args.ticker}  (depth={args.depth})")
-        print(f"  ** EMPTY — no YES or NO levels returned **")
+        print(f"  ** EMPTY -- no YES or NO levels returned **")
         print(f"  Possible reasons:")
         print(f"    - Market has no resting orders (genuinely empty book)")
         print(f"    - Market is not open (check: runner.py markets get {args.ticker})")
         print(f"    - Ticker is a multivariate event / combo (no standalone book)")
-        # Dump the raw response for debugging
-        print(f"\n  Raw response type: {type(ob).__name__}")
-        if hasattr(ob, "to_dict"):
-            print(f"  Raw to_dict(): {ob.to_dict()}")
-        elif hasattr(ob, "__dict__"):
-            print(f"  Raw __dict__: {ob.__dict__}")
         print()
         return
 

@@ -12,8 +12,12 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json as _json
+import os
 import sys
 import time
+import urllib.request
+import urllib.error
 from pathlib import Path
 from typing import Any
 
@@ -47,52 +51,46 @@ def run(client: Any, args: Any) -> None:
 
     print(f"  Watching spread on {ticker}  (threshold={opts.threshold}c, Ctrl-C to stop)\n")
 
+    host = os.environ.get("KALSHI_HOST", "https://api.elections.kalshi.com/trade-api/v2")
+
+    def _fetch_book_raw(t: str) -> dict:
+        """Raw HTTP orderbook fetch (bypasses SDK alias bug)."""
+        url = f"{host}/markets/{t}/orderbook?depth=10"
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = _json.loads(resp.read().decode())
+        ob = data.get("orderbook", data)
+        return {"yes": ob.get("yes") or [], "no": ob.get("no") or []}
+
     try:
         while True:
-            resp = client.get_market_orderbook(ticker, depth=10)
-            ob = resp.orderbook if hasattr(resp, "orderbook") else resp
+            try:
+                book = _fetch_book_raw(ticker)
+                yes_raw = book["yes"]
+                no_raw = book["no"]
+            except Exception:
+                # Fallback to SDK if raw HTTP fails
+                resp = client.get_market_orderbook(ticker, depth=10)
+                ob = resp.orderbook if hasattr(resp, "orderbook") else resp
+                yes_raw = getattr(ob, "var_true", None) or getattr(ob, "yes", None) or []
+                no_raw = getattr(ob, "var_false", None) or getattr(ob, "no", None) or []
 
-            # SDK uses var_true/var_false; older versions use yes/no
-            yes_raw = getattr(ob, "var_true", None) or getattr(ob, "yes", None) or []
-            no_raw = getattr(ob, "var_false", None) or getattr(ob, "no", None) or []
-
-            # Fallback: try to_dict()
-            if not yes_raw and hasattr(ob, "to_dict"):
-                d = ob.to_dict()
-                yes_raw = d.get("yes") or d.get("var_true") or d.get("true") or []
-                no_raw = d.get("no") or d.get("var_false") or d.get("false") or []
-
-            # Parse best level from a list of OrderbookLevel objects or [price, qty] arrays
+            # Parse best level — data is [[price_cents, qty], ...]
             def _best(levels):
-                for item in levels:
+                for item in sorted(levels, key=lambda x: -(x[0] if isinstance(x, (list, tuple)) else 0), reverse=False):
                     if isinstance(item, (list, tuple)) and len(item) >= 2:
-                        p = float(item[0])
-                        q = int(item[1])
-                    elif isinstance(item, dict):
-                        p = float(item.get("price", 0))
-                        q = int(item.get("count", item.get("quantity", 0)))
-                    elif hasattr(item, "price"):
-                        p = float(item.price) if item.price is not None else 0
-                        q = int(getattr(item, "count", None) or getattr(item, "quantity", 0) or 0)
-                    else:
-                        continue
-                    # Detect dollars (0 < p < 1) vs cents
-                    price_cents = round(p * 100) if 0 < p < 1.0 else int(p)
-                    if price_cents > 0:
-                        return price_cents, q
+                        price_cents = int(item[0])
+                        qty = int(item[1])
+                        if price_cents > 0:
+                            return price_cents, qty
                 return None, 0
 
-            def _sort_key(x):
-                if hasattr(x, "price"):
-                    return -(float(x.price or 0))
-                elif isinstance(x, (list, tuple)):
-                    return -(float(x[0]))
-                elif isinstance(x, dict):
-                    return -(float(x.get("price", 0)))
-                return 0
-
-            bid_price, bid_depth = _best(sorted(yes_raw, key=_sort_key))
-            ask_from_no, ask_depth = _best(sorted(no_raw, key=_sort_key))
+            # Best YES bid = highest price in yes_raw
+            yes_sorted = sorted(yes_raw, key=lambda x: x[0] if isinstance(x, (list, tuple)) else 0, reverse=True)
+            bid_price, bid_depth = _best(yes_sorted)
+            # Best NO bid = highest price in no_raw → YES ask = 100 - that
+            no_sorted = sorted(no_raw, key=lambda x: x[0] if isinstance(x, (list, tuple)) else 0, reverse=True)
+            ask_from_no, ask_depth = _best(no_sorted)
             ask_price = (100 - ask_from_no) if ask_from_no is not None else None
 
             if bid_price is None or ask_price is None:
