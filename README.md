@@ -6,23 +6,24 @@ CLI tool and trading engine for [Kalshi](https://kalshi.com) prediction markets,
 
 ```
 kalshi-bot/
-??? SKILL.md                           # OpenClaw skill definition (triggers + instructions)
-??? agents/
-?   ??? openai.yaml                    # UI metadata (display name, description, prompt)
-??? scripts/
-?   ??? runner.py                      # CLI entry point ? all user-facing commands
-?   ??? kalshi_math.py                 # Pure math: fees, P&L, break-even, sizing (no SDK dep)
-?   ??? trade_engine.py                # Trade evaluation, 4 acceptance gates, order tickets
-?   ??? config.example.yaml            # Template config ? credentials + risk parameters
-?   ??? requirements.txt               # Python dependencies (kalshi-python, pyyaml)
-?   ??? strategies/
-?       ??? fee_aware_mm.py            # Full doctrine strategy: gates, sizing, execution
-?       ??? example_spread.py          # Lightweight spread watcher with evaluation
-??? references/
-?   ??? kalshi_api.md                  # Kalshi Python SDK quick reference
-?   ??? trading_doctrine.md            # Complete formula & rules reference
-??? .gitignore
-??? README.md
+|-- SKILL.md                           # OpenClaw skill definition (triggers + instructions)
+|-- AGENTS.md                          # Agent playbook: strategy, workflow, gate explanations
+|-- agents/
+|   +-- openai.yaml                    # UI metadata (display name, description, prompt)
+|-- scripts/
+|   |-- runner.py                      # CLI entry point - all user-facing commands
+|   |-- kalshi_math.py                 # Pure math: fees, P&L, break-even, sizing (no SDK dep)
+|   |-- trade_engine.py                # Trade evaluation, 4 acceptance gates, order tickets
+|   |-- config.example.yaml            # Template config - credentials + risk parameters
+|   |-- requirements.txt               # Python dependencies (kalshi-python, pyyaml)
+|   +-- strategies/
+|       |-- fee_aware_mm.py            # Full doctrine strategy: gates, sizing, execution
+|       +-- example_spread.py          # Lightweight spread watcher with evaluation
+|-- references/
+|   |-- kalshi_api.md                  # Kalshi Python SDK quick reference
+|   +-- trading_doctrine.md            # Complete formula & rules reference
+|-- .gitignore
++-- README.md
 ```
 
 ### Module Overview
@@ -30,10 +31,19 @@ kalshi-bot/
 | Module | Purpose |
 |---|---|
 | `runner.py` | Argparse CLI dispatching all commands (`markets`, `buy`, `sell`, `cancel`, `orderbook`, `balance`, `orders`, `positions`, `fills`, `run-strategy`) |
-| `kalshi_math.py` | Stateless functions implementing every formula from the trading doctrine ? fee calculation, gross/net P&L, slippage, capital at risk, break-even search, position sizing. Zero SDK dependency, fully unit-testable. |
-| `trade_engine.py` | Orchestrates a full trade evaluation: computes all metrics, runs the 4 acceptance gates (A?D), enforces portfolio risk limits, formats the canonical order ticket, and provides execution helpers (`place_limit_order`, `wait_for_fill`). |
-| `strategies/fee_aware_mm.py` | Production strategy ? reads the orderbook, auto-sizes via doctrine, evaluates through all gates, prints the order ticket, and executes with TP/stop/time-stop exits. Supports `--dry-run`, `--loop`, side/contract/price overrides. |
-| `strategies/example_spread.py` | Simpler strategy ? monitors the spread and prints a full evaluation whenever it tightens below a threshold. |
+| `kalshi_math.py` | Stateless functions implementing every formula from the trading doctrine: fee calculation, gross/net P&L, slippage, capital at risk, break-even search, position sizing. Zero SDK dependency, fully unit-testable. |
+| `trade_engine.py` | Orchestrates a full trade evaluation: computes all metrics, runs the 4 acceptance gates (A-D), enforces portfolio risk limits, formats the canonical order ticket, and provides execution helpers (`place_limit_order`, `wait_for_fill`). |
+| `strategies/fee_aware_mm.py` | Production strategy: reads the orderbook, auto-sizes via doctrine, evaluates through all gates, prints the order ticket, and executes with TP/stop/time-stop exits. Supports `--dry-run`, `--loop`, side/contract/price overrides. |
+| `strategies/example_spread.py` | Simpler strategy: monitors the spread and prints a full evaluation whenever it tightens below a threshold. |
+
+### Key Files for Agents
+
+| File | When to read |
+|---|---|
+| `AGENTS.md` | Start here. Full playbook for the OpenClaw agent: golden rules, command reference, decision workflow, gate explanations, config tuning. |
+| `SKILL.md` | Skill definition with setup instructions and architecture overview. Read by Codex to decide when to activate the skill. |
+| `references/trading_doctrine.md` | Complete formula reference. Read when you need to verify or explain any calculation. |
+| `references/kalshi_api.md` | SDK method signatures and response fields. Read when constructing API calls. |
 
 ### Trading Doctrine (4 Gates)
 
@@ -41,10 +51,10 @@ Every trade must pass all four gates before execution:
 
 | Gate | Condition |
 |---|---|
-| **A** ? Worst-case survivability | Net P&L under taker/taker + slippage >= $0 |
-| **B** ? Margin over fees | Net profit >= 2x planned fees |
-| **C** ? Move threshold | Expected price move >= worst-case break-even move + safety margin |
-| **D** ? Microstructure | Spread <= configured max, visible depth >= configured min |
+| **A** - Worst-case survivability | Net P&L under taker/taker + slippage >= $0 |
+| **B** - Margin over fees | Net profit >= 2x planned fees |
+| **C** - Move threshold | Expected price move >= worst-case break-even move + safety margin |
+| **D** - Microstructure | Spread <= configured max, visible depth >= configured min |
 
 After gates pass, portfolio-level hard limits are checked (per-market capital, total capital, daily loss, concurrent positions, order rate). Only then does an order go out.
 
@@ -66,7 +76,7 @@ pip install -r scripts/requirements.txt
 
 # 3. Configure credentials
 cp scripts/config.example.yaml scripts/config.yaml
-# Edit scripts/config.yaml ? set api_key_id and private_key_path
+# Edit scripts/config.yaml - set api_key_id and private_key_path
 
 # 4. Verify connection
 python scripts/runner.py balance
@@ -74,7 +84,7 @@ python scripts/runner.py balance
 # 5. Search markets
 python scripts/runner.py markets search "bitcoin"
 
-# 6. Evaluate a trade (dry run ? no real orders)
+# 6. Evaluate a trade (dry run - no real orders)
 python scripts/runner.py run-strategy fee_aware_mm --ticker KXBTC-26FEB14-T50050 -- --dry-run
 ```
 
@@ -160,6 +170,7 @@ Or run the installer script directly:
 1. **Restart Codex** to pick up the new skill.
 2. The skill triggers automatically when you mention Kalshi, prediction markets, or trading strategies.
 3. You still need to set up `config.yaml` with your API credentials inside the installed skill's `scripts/` directory.
+4. The agent will follow `AGENTS.md` for its decision-making workflow: always dry-run first, present the order ticket, and wait for your approval before executing.
 
 ### Verifying installation
 
@@ -171,4 +182,4 @@ If the file exists, the skill is installed. Codex reads `SKILL.md` frontmatter t
 
 ## License
 
-Private ? not for redistribution without permission.
+Private - not for redistribution without permission.
