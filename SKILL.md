@@ -1,6 +1,7 @@
 ---
 name: kalshi-bot
 description: Trade Kalshi prediction markets from the CLI using the official kalshi-python SDK with a full fee-aware trading doctrine. Use when the user wants to search markets, view orderbooks, place buy/sell orders, cancel orders, check positions/balance, evaluate trades with fee/gate analysis, or run automated trading strategies on Kalshi. Triggers on any mention of Kalshi, prediction markets, event contracts, binary options trading, or trading strategy evaluation.
+metadata: {"openclaw":{"homepage":"https://kalshi.com","requires":{"anyBins":["python3","python"],"env":["KALSHI_API_KEY_ID"]},"primaryEnv":"KALSHI_API_KEY_ID"}}
 ---
 
 # Kalshi Bot

@@ -219,7 +219,9 @@ If the file exists and contains valid YAML frontmatter, the skill is installed. 
 
 ### Optional: config overrides
 
-You can toggle the skill or inject env vars via `~/.openclaw/openclaw.json`:
+You can toggle the skill or inject env vars via `~/.openclaw/openclaw.json`.
+Because the skill declares `primaryEnv: "KALSHI_API_KEY_ID"` in its metadata,
+you can use the `apiKey` shorthand:
 
 ```json5
 {
@@ -227,8 +229,9 @@ You can toggle the skill or inject env vars via `~/.openclaw/openclaw.json`:
     entries: {
       "kalshi-bot": {
         enabled: true,
+        apiKey: "your-kalshi-api-key-id",
         env: {
-          KALSHI_API_KEY_ID: "your-key-id",
+          KALSHI_API_KEY_ID: "your-kalshi-api-key-id",
           KALSHI_PRIVATE_KEY_PATH: "/path/to/private_key.pem"
         }
       }
@@ -236,6 +239,20 @@ You can toggle the skill or inject env vars via `~/.openclaw/openclaw.json`:
   }
 }
 ```
+
+Note: the skill name contains a hyphen, so the key must be quoted (`"kalshi-bot"`).
+See the [OpenClaw Skills docs](https://docs.openclaw.ai/tools/skills) for the
+full config schema, gating rules, and environment injection behavior.
+
+### Skill gating
+
+The `SKILL.md` frontmatter includes OpenClaw metadata that gates the skill at load time:
+
+- **`requires.anyBins: ["python3", "python"]`** -- the skill is only eligible when Python is on PATH.
+- **`requires.env: ["KALSHI_API_KEY_ID"]`** -- the skill is only eligible when the API key is set (either as a real env var or via `skills.entries."kalshi-bot".env` / `apiKey` in `openclaw.json`).
+
+If either condition is not met, OpenClaw silently skips the skill. This prevents
+the agent from attempting trades when the environment isn't configured.
 
 ## License
 
