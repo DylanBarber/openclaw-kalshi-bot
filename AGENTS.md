@@ -160,6 +160,7 @@ When the user asks you to find a trade or evaluate an opportunity, follow this s
 | Mistake | Fix |
 |---|---|
 | Writing inline `kalshi_python` SDK calls | Use `runner.py` commands instead |
+| Calling `client.create_order(req)` with positional args | SDK v2.1.4 requires kwargs: `client.create_order(**req.to_dict())` |
 | Passing response-level status like `active` as a query filter | Use query filter values: `unopened`, `open`, `paused`, `closed`, `settled` |
 | Using `json.dumps()` on SDK responses | Runner handles serialization; use `runner.py markets get` |
 | Running `.venv/bin/python` without `cd {baseDir}` first | Always prefix with `cd {baseDir} &&` |

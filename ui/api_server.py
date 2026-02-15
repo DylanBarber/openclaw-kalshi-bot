@@ -103,9 +103,15 @@ def _build_client_direct(config: dict):
             pass
 
     if Configuration is None or KalshiClient is None:
+        # Most common cause: kalshi-python needs cryptography but doesn't declare it
+        crypto_hint = ""
+        try:
+            import cryptography  # noqa: F401
+        except ImportError:
+            crypto_hint = " (cryptography package is MISSING -- run: pip install cryptography)"
         raise ImportError(
-            "Could not import Configuration/KalshiClient from kalshi_python. "
-            "Try: pip install --force-reinstall kalshi-python"
+            "Could not import Configuration/KalshiClient from kalshi_python"
+            f"{crypto_hint}. Try: pip install cryptography kalshi-python"
         )
 
     host = config.get("host", DEFAULT_HOST)

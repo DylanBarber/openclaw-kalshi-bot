@@ -184,7 +184,7 @@ def cmd_markets_search(client, args):
 
 def cmd_markets_get(client, args):
     """Get a single market by ticker."""
-    resp = client.get_market(args.ticker)
+    resp = client.get_market(ticker=args.ticker)
     _pp(resp)
 
 
@@ -341,7 +341,7 @@ def cmd_buy(client, args):
         yes_price=int(args.price) if args.side == "yes" else None,
         no_price=int(args.price) if args.side == "no" else None,
     )
-    resp = client.create_order(req)
+    resp = client.create_order(**req.to_dict())
     order = resp.order
     print(f"  BUY order placed: {order.order_id}")
     print(f"    ticker={order.ticker}  side={order.side}  count={order.initial_count}  "
@@ -361,7 +361,7 @@ def cmd_sell(client, args):
         yes_price=int(args.price) if args.side == "yes" else None,
         no_price=int(args.price) if args.side == "no" else None,
     )
-    resp = client.create_order(req)
+    resp = client.create_order(**req.to_dict())
     order = resp.order
     print(f"  SELL order placed: {order.order_id}")
     print(f"    ticker={order.ticker}  side={order.side}  count={order.initial_count}  "
@@ -370,7 +370,7 @@ def cmd_sell(client, args):
 
 def cmd_cancel(client, args):
     """Cancel an order by ID."""
-    resp = client.cancel_order(args.order_id)
+    resp = client.cancel_order(order_id=args.order_id)
     print(f"  Order {args.order_id} canceled.")
     if resp:
         _pp(resp)

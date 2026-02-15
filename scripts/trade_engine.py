@@ -447,7 +447,7 @@ def place_limit_order(
         post_only=post_only,
         **price_kwargs,
     )
-    return client.create_order(req)
+    return client.create_order(**req.to_dict())
 
 
 def wait_for_fill(
@@ -459,7 +459,7 @@ def wait_for_fill(
     """Poll order status until filled, canceled, or timeout."""
     deadline = time.time() + timeout_s
     while time.time() < deadline:
-        resp = client.get_order(order_id)
+        resp = client.get_order(order_id=order_id)
         order = resp.order if hasattr(resp, "order") else resp
         status = getattr(order, "status", "")
         if status in ("executed", "canceled"):

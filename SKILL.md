@@ -31,11 +31,18 @@ scripts/
 ├── runner.py              CLI entry point (all commands)
 ├── kalshi_math.py         Pure fee/PnL/break-even formulas
 ├── trade_engine.py        Trade evaluation, gates, order tickets, risk checks
+├── watcher.py             Position price watcher daemon
 ├── config.example.yaml    Template config with risk parameters
 ├── requirements.txt       Python dependencies
 └── strategies/
-    ├── fee_aware_mm.py    Fee-aware market-making strategy
+    ├── fee_aware_mm.py    Fee-aware market-making strategy (auto-starts watcher on fill)
     └── example_spread.py  Simple spread watcher
+ui/
+├── api_server.py          Flask REST API for the dashboard
+└── static/
+    ├── index.html         Dashboard page
+    ├── app.js             Client-side logic + charts
+    └── style.css          Dark terminal theme
 ```
 
 ### Module roles
@@ -74,6 +81,30 @@ python scripts/runner.py orders
 python scripts/runner.py positions
 python scripts/runner.py fills --ticker KXBTC-26FEB14-T50050
 ```
+
+### Position Watcher
+
+```bash
+# Watch a position (polls orderbook, tracks price history, alerts on stop/TP)
+python scripts/runner.py watch KXBTC-26FEB15-B68375 --entry 40 --side LONG --contracts 10 --stop 36 --tp 46
+
+# List active watchers
+python scripts/runner.py watch --list
+
+# Remove a watcher
+python scripts/runner.py watch --remove KXBTC-26FEB15-B68375
+```
+
+The `fee_aware_mm` strategy auto-starts a watcher after a successful fill.
+
+### Trading Dashboard (Web UI)
+
+```bash
+python ui/api_server.py          # starts at http://localhost:5123
+python ui/api_server.py --port 8080  # custom port
+```
+
+Shows balance, active watchers with live P&L, price charts, orderbook depth, and positions.
 
 ### Fee-Aware Strategy
 
@@ -121,6 +152,13 @@ To add a new strategy:
 ## API Reference
 
 For SDK method signatures and response models, see [references/kalshi_api.md](references/kalshi_api.md).
+
+## SDK Pitfalls (kalshi-python v2.1.4)
+
+- **kwargs only**: All SDK methods use Pydantic `validate_call` and reject positional args. Use `client.create_order(**req.to_dict())` not `client.create_order(req)`.
+- **Missing dependency**: The SDK imports `cryptography` at module level but doesn't declare it as a dependency. Install it explicitly: `pip install cryptography`.
+- **Orderbook alias bug**: The SDK's Pydantic model expects JSON keys `"true"`/`"false"` but the API returns `"yes"`/`"no"`. All orderbook fetches in this skill use raw HTTP to bypass this. See `fetch_orderbook_raw()` in `runner.py`.
+- **Status filter values**: Query filters accept `unopened`, `open`, `paused`, `closed`, `settled`. Do NOT use response-level values like `active`.
 
 ## Key Concepts
 
