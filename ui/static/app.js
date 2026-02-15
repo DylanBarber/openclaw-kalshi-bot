@@ -92,6 +92,34 @@ async function refreshWatchers() {
   }).join("");
 }
 
+// ── Sync watchers from Kalshi positions/orders ───────────────────────────
+
+async function syncWatchers() {
+  const btn = document.getElementById("btn-sync");
+  btn.disabled = true;
+  btn.textContent = "Syncing...";
+
+  try {
+    const resp = await fetch("/api/watchers/sync", { method: "POST" });
+    const data = await resp.json();
+    if (data.error) {
+      alert("Sync error: " + data.error);
+    } else if (data.synced === 0) {
+      btn.textContent = "Already synced";
+    } else {
+      btn.textContent = `Synced ${data.synced} new`;
+      await refreshWatchers();
+    }
+  } catch (e) {
+    alert("Sync failed: " + e);
+  }
+
+  setTimeout(() => {
+    btn.disabled = false;
+    btn.textContent = "Sync from Kalshi";
+  }, 3000);
+}
+
 // ── Watcher selection → chart + orderbook ────────────────────────────────
 
 async function selectWatcher(ticker) {

@@ -345,6 +345,97 @@ def api_remove_watcher(ticker):
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/watchers/sync", methods=["POST"])
+def api_sync_watchers():
+    """Auto-create watchers for positions and resting orders that don't have one."""
+    config = _load_project_config()
+    client = _get_client(config)
+    if client is None:
+        return jsonify({"error": "Kalshi client not configured"}), 503
+
+    store_path = _get_store_path(config)
+    host = _get_host(config)
+
+    try:
+        from watcher import add_watcher, fetch_market_info, _load_store
+
+        existing = _load_store(store_path)
+        created = []
+
+        # Sync from positions (filled contracts)
+        try:
+            pos_resp = client.get_positions(limit=100)
+            positions = getattr(pos_resp, "positions", []) or []
+            for p in positions:
+                ticker = getattr(p, "ticker", None)
+                pos_count = getattr(p, "position", 0)
+                if not ticker or ticker in existing:
+                    continue
+                # Only watch positions with actual contracts
+                if pos_count == 0:
+                    continue
+
+                side = "LONG" if pos_count > 0 else "SHORT"
+                contracts = abs(pos_count)
+
+                mkt = fetch_market_info(host, ticker)
+                title = mkt.get("title", "")
+
+                add_watcher(
+                    store_path, ticker,
+                    entry_cents=0,  # unknown -- filled via external order
+                    side=side,
+                    contracts=contracts,
+                    title=title,
+                )
+                existing[ticker] = True
+                created.append({"ticker": ticker, "source": "position", "side": side, "contracts": contracts})
+        except Exception as e:
+            print(f"  Sync positions error: {e}", file=sys.stderr)
+
+        # Sync from resting orders
+        try:
+            ord_resp = client.get_orders(status="resting", limit=100)
+            orders = getattr(ord_resp, "orders", []) or []
+            for o in orders:
+                ticker = getattr(o, "ticker", None)
+                if not ticker or ticker in existing:
+                    continue
+
+                sdk_side = getattr(o, "side", "yes")
+                action = getattr(o, "action", "buy")
+                yes_price = getattr(o, "yes_price", None)
+                no_price = getattr(o, "no_price", None)
+                count = getattr(o, "remaining_count", 0) or getattr(o, "count", 0)
+
+                # Determine position side from action
+                if action == "buy":
+                    side = "LONG"
+                else:
+                    side = "SHORT"
+
+                entry_cents = yes_price if yes_price else (100 - no_price if no_price else 0)
+
+                mkt = fetch_market_info(host, ticker)
+                title = mkt.get("title", "")
+
+                add_watcher(
+                    store_path, ticker,
+                    entry_cents=entry_cents,
+                    side=side,
+                    contracts=count,
+                    title=title,
+                )
+                existing[ticker] = True
+                created.append({"ticker": ticker, "source": "resting_order", "side": side, "entry_cents": entry_cents})
+        except Exception as e:
+            print(f"  Sync orders error: {e}", file=sys.stderr)
+
+        return jsonify({"synced": len(created), "created": created})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/orderbook/<ticker>")
 def api_orderbook(ticker):
     config = _load_project_config()

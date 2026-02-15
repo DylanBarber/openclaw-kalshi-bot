@@ -39,7 +39,10 @@
 
     <!-- Active Watchers Table -->
     <section class="panel" id="watchers-panel">
-      <h2>Active Watchers</h2>
+      <div class="panel-header">
+        <h2>Active Watchers</h2>
+        <button class="btn-sync" id="btn-sync" onclick="syncWatchers()">Sync from Kalshi</button>
+      </div>
       <div class="table-wrap">
         <table id="watchers-table">
           <thead>

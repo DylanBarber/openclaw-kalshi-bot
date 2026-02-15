@@ -108,6 +108,40 @@ main {
   font-weight: 600;
 }
 
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.panel-header h2 {
+  margin-bottom: 0;
+}
+
+.btn-sync {
+  background: rgba(68,138,255,0.15);
+  color: var(--accent-blue);
+  border: 1px solid rgba(68,138,255,0.3);
+  border-radius: 4px;
+  padding: 5px 14px;
+  font-size: 12px;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-weight: 600;
+  transition: all 0.15s ease;
+}
+
+.btn-sync:hover:not(:disabled) {
+  background: rgba(68,138,255,0.3);
+  border-color: var(--accent-blue);
+}
+
+.btn-sync:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .ticker-badge {
   font-family: var(--font-mono);
   font-size: 12px;
