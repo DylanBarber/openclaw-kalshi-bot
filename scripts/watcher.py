@@ -27,6 +27,54 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+# ── Auto-exit execution ───────────────────────────────────────────────────
+
+def _try_auto_exit(
+    ticker: str,
+    side: str,
+    contracts: int,
+    price_cents: int,
+    reason: str,
+) -> str | None:
+    """Attempt to place an exit order via the SDK.
+
+    Returns the order_id on success, or None on failure.
+    The exit always sells what we hold:
+      LONG  → sell YES at price_cents
+      SHORT → buy  YES at price_cents (covering the short)
+    """
+    try:
+        # Import runner's config/client helpers (scripts/ is on sys.path)
+        from runner import load_config, build_client
+        cfg = load_config()
+        client = build_client(cfg)
+
+        from kalshi_python.models.create_order_request import CreateOrderRequest
+
+        if side == "LONG":
+            action = "sell"
+            sdk_side = "yes"
+        else:
+            action = "buy"
+            sdk_side = "yes"
+
+        req = CreateOrderRequest(
+            ticker=ticker,
+            side=sdk_side,
+            action=action,
+            count=contracts,
+            type="limit",
+            yes_price=price_cents,
+        )
+        resp = client.create_order(**req.to_dict())
+        order = resp.order
+        oid = getattr(order, "order_id", "?")
+        print(f"  >>> AUTO-EXIT ({reason}): {action} {contracts}x {sdk_side} @ {price_cents}c  order_id={oid}")
+        return oid
+    except Exception as e:
+        print(f"  >>> AUTO-EXIT FAILED ({reason}): {e}", file=sys.stderr)
+        return None
+
 # ── Defaults ──────────────────────────────────────────────────────────────
 
 DEFAULT_HOST = "https://api.elections.kalshi.com/trade-api/v2"
@@ -90,6 +138,7 @@ def add_watcher(
     stop_cents: int = 0,
     take_profit_cents: int = 0,
     title: str = "",
+    auto_exit: bool = True,
 ) -> dict:
     """Add or update a watcher entry in the store."""
     store = _load_store(store_path)
@@ -109,6 +158,7 @@ def add_watcher(
         if title:
             entry["title"] = title
         entry["side"] = side
+        entry["auto_exit"] = auto_exit
     else:
         entry = {
             "ticker": ticker,
@@ -121,6 +171,7 @@ def add_watcher(
             "current": {},
             "stop_cents": stop_cents,
             "take_profit_cents": take_profit_cents,
+            "auto_exit": auto_exit,
             "status": "watching",
         }
 
@@ -205,8 +256,11 @@ def poll_once(
     if len(entry["history"]) > max_history:
         entry["history"] = entry["history"][-max_history:]
 
-    # Check alerts
+    # Check alerts and auto-exit
     alerts = []
+    contracts_held = entry.get("contracts", 0)
+    auto_exit_enabled = entry.get("auto_exit", True) and contracts_held > 0
+
     if best_yes_bid is not None and entry.get("entry_cents"):
         side = entry.get("side", "LONG")
         price = best_yes_bid
@@ -215,16 +269,36 @@ def poll_once(
             if entry.get("stop_cents") and price <= entry["stop_cents"]:
                 alerts.append(f"STOP HIT: {ticker} YES bid {price}c <= stop {entry['stop_cents']}c")
                 entry["status"] = "stopped"
+                if auto_exit_enabled:
+                    oid = _try_auto_exit(ticker, side, contracts_held, price, "STOP")
+                    if oid:
+                        entry["exit_order_id"] = oid
+                        alerts.append(f"AUTO-EXIT order placed: {oid}")
             if entry.get("take_profit_cents") and price >= entry["take_profit_cents"]:
                 alerts.append(f"TAKE PROFIT HIT: {ticker} YES bid {price}c >= TP {entry['take_profit_cents']}c")
                 entry["status"] = "tp_hit"
+                if auto_exit_enabled:
+                    oid = _try_auto_exit(ticker, side, contracts_held, price, "TP")
+                    if oid:
+                        entry["exit_order_id"] = oid
+                        alerts.append(f"AUTO-EXIT order placed: {oid}")
         else:
             if entry.get("stop_cents") and price >= entry["stop_cents"]:
                 alerts.append(f"STOP HIT: {ticker} YES bid {price}c >= stop {entry['stop_cents']}c (SHORT)")
                 entry["status"] = "stopped"
+                if auto_exit_enabled:
+                    oid = _try_auto_exit(ticker, side, contracts_held, price, "STOP")
+                    if oid:
+                        entry["exit_order_id"] = oid
+                        alerts.append(f"AUTO-EXIT order placed: {oid}")
             if entry.get("take_profit_cents") and price <= entry["take_profit_cents"]:
                 alerts.append(f"TAKE PROFIT HIT: {ticker} YES bid {price}c <= TP {entry['take_profit_cents']}c (SHORT)")
                 entry["status"] = "tp_hit"
+                if auto_exit_enabled:
+                    oid = _try_auto_exit(ticker, side, contracts_held, price, "TP")
+                    if oid:
+                        entry["exit_order_id"] = oid
+                        alerts.append(f"AUTO-EXIT order placed: {oid}")
 
     store[ticker] = entry
     _save_store(store_path, store)
@@ -243,6 +317,7 @@ def run_watcher(
     contracts: int = 0,
     stop_cents: int = 0,
     take_profit_cents: int = 0,
+    auto_exit: bool = True,
 ) -> None:
     """Main watcher loop. Runs until Ctrl-C or stop/TP hit."""
 
@@ -255,14 +330,15 @@ def run_watcher(
         store_path, ticker,
         entry_cents=entry_cents, side=side, contracts=contracts,
         stop_cents=stop_cents, take_profit_cents=take_profit_cents,
-        title=title,
+        title=title, auto_exit=auto_exit,
     )
 
+    exit_mode = "AUTO-EXIT enabled" if auto_exit else "alert only (no auto-exit)"
     print(f"  Watcher started: {ticker}")
     print(f"  Title:  {title or '(not found)'}")
     print(f"  Market: {mkt_status}")
     print(f"  Side:   {side}  Entry: {entry_cents}c  Contracts: {contracts}")
-    print(f"  Stop:   {stop_cents}c  TP: {take_profit_cents}c")
+    print(f"  Stop:   {stop_cents}c  TP: {take_profit_cents}c  [{exit_mode}]")
     print(f"  Poll:   every {poll_interval}s  (Ctrl-C to stop)")
     print(f"  Store:  {store_path}")
 
@@ -351,6 +427,7 @@ def main():
     parser.add_argument("--interval", type=float, default=None, help="Poll interval in seconds")
     parser.add_argument("--list", action="store_true", help="List all active watchers")
     parser.add_argument("--remove", metavar="TICKER", default=None, help="Remove a watcher")
+    parser.add_argument("--no-auto-exit", action="store_true", help="Disable auto-sell on TP/stop (alert only)")
     parser.add_argument("--store", default=None, help="Path to watcher_store.json")
     parser.add_argument("--host", default=None, help="Kalshi API host")
 
@@ -410,6 +487,7 @@ def main():
         contracts=args.contracts,
         stop_cents=args.stop,
         take_profit_cents=args.tp,
+        auto_exit=not args.no_auto_exit,
     )
 
 

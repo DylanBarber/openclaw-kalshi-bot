@@ -646,6 +646,7 @@ def cmd_watch(_client, args):
         print("ERROR: ticker is required. Use: runner.py watch <TICKER>", file=sys.stderr)
         sys.exit(1)
 
+    auto_exit = not getattr(args, "no_auto_exit", False)
     run_watcher(
         ticker=args.ticker,
         host=host,
@@ -657,6 +658,7 @@ def cmd_watch(_client, args):
         contracts=args.contracts,
         stop_cents=args.stop,
         take_profit_cents=args.tp,
+        auto_exit=auto_exit,
     )
 
 
@@ -791,6 +793,8 @@ def build_parser() -> argparse.ArgumentParser:
     watch_p.add_argument("--interval", type=float, default=None, help="Poll interval in seconds")
     watch_p.add_argument("--list", action="store_true", dest="watch_list", help="List active watchers")
     watch_p.add_argument("--remove", metavar="TICKER", default=None, help="Remove a watcher")
+    watch_p.add_argument("--no-auto-exit", action="store_true", dest="no_auto_exit",
+                         help="Disable auto-sell on TP/stop (alert only)")
 
     return parser
 
