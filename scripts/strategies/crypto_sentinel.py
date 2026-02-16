@@ -378,7 +378,11 @@ SERIES_15M = {
 
 
 def find_active_15m_market(host: str, asset: str) -> dict | None:
-    """Find the current/next active 15-minute market for a crypto asset.
+    """Find the NEAREST-expiry active 15-minute market for a crypto asset.
+
+    The API returns events in reverse chronological order (furthest-out first),
+    so we must collect ALL active markets and pick the one with the earliest
+    close_time — that's the one expiring soonest.
 
     Returns {"event_ticker", "market_ticker", "title", "status", "close_time",
              "yes_bid", "yes_ask", "volume"} or None.
@@ -389,13 +393,15 @@ def find_active_15m_market(host: str, asset: str) -> dict | None:
     if not series:
         return None
 
-    data = _fetch_json_raw(f"{host}/events?series_ticker={series}&limit=20")
+    data = _fetch_json_raw(f"{host}/events?series_ticker={series}&limit=30")
     if not data:
         return None
 
     events = data.get("events", [])
 
-    best = None
+    active_markets = []
+    best_initialized = None
+
     for ev in events:
         et = ev.get("event_ticker", "")
         ev_data = _fetch_json_raw(f"{host}/events/{et}")
@@ -406,7 +412,7 @@ def find_active_15m_market(host: str, asset: str) -> dict | None:
         for m in markets:
             status = m.get("status", "")
             if status in ("active", "open"):
-                return {
+                active_markets.append({
                     "event_ticker": et,
                     "market_ticker": m.get("ticker", ""),
                     "title": m.get("title", ""),
@@ -416,10 +422,9 @@ def find_active_15m_market(host: str, asset: str) -> dict | None:
                     "yes_bid": m.get("yes_bid", 0) or 0,
                     "yes_ask": m.get("yes_ask", 0) or 0,
                     "volume": m.get("volume", 0) or 0,
-                }
-            # Keep track of initialized markets (upcoming)
-            if status == "initialized" and best is None:
-                best = {
+                })
+            elif status == "initialized" and best_initialized is None:
+                best_initialized = {
                     "event_ticker": et,
                     "market_ticker": m.get("ticker", ""),
                     "title": m.get("title", ""),
@@ -431,7 +436,12 @@ def find_active_15m_market(host: str, asset: str) -> dict | None:
                     "volume": m.get("volume", 0) or 0,
                 }
 
-    return best
+    if active_markets:
+        # Sort by close_time ascending — nearest expiry first
+        active_markets.sort(key=lambda m: m.get("close_time", "z"))
+        return active_markets[0]
+
+    return best_initialized
 
 
 def list_15m_series(host: str) -> list[dict]:
@@ -495,8 +505,8 @@ def run_15min_mode(asset: str, host: str, cfg: dict, opts, dry_run: bool = False
     initial_spot = initial_price_data["usd"]
     print(f"  Current {asset}: ${initial_spot:,.2f}")
 
-    # Find current/next 15-minute market
-    print(f"\n  Looking for active 15-minute market...")
+    # Find current/next 15-minute market (nearest expiry first)
+    print(f"\n  Looking for active 15-minute market (nearest expiry)...")
     market = find_active_15m_market(host, asset)
     if not market:
         print(f"  No 15-minute {asset} markets found on Kalshi.")
@@ -508,7 +518,7 @@ def run_15min_mode(asset: str, host: str, cfg: dict, opts, dry_run: bool = False
     status = market["status"]
     close_time = market["close_time"]
 
-    print(f"  Market:       {ticker}")
+    print(f"  Market:       {ticker}  (nearest expiry)")
     print(f"  Title:        {market['title']}")
     print(f"  Status:       {status}")
     print(f"  Close time:   {close_time}")
