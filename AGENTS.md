@@ -185,6 +185,7 @@ When the user asks you to find a trade or evaluate an opportunity, follow this s
 | Empty orderbook data | Check the market is `open`/`active`, the ticker is valid, and the market isn't a multi-event summary. Some markets genuinely have thin/no books. |
 | Using `get_markets()` or `/markets` listing to discover markets | This only returns esports combo tickers. Use `runner.py events` or `runner.py markets search` (events-based discovery) instead. |
 | Searching for KXBTC, KXINX, KXNASDAQ100 daily series tickers | These return 404 — daily series markets are not on this API host. Use event-based markets instead. |
+| `client.get_positions()` returns empty/None | SDK bug: API returns `market_positions`/`event_positions` but SDK model expects `positions`. Use `runner.py positions` which bypasses the SDK with authenticated raw HTTP. |
 
 ### API Host & Market Discovery
 

@@ -454,24 +454,42 @@ async function refreshOrders() {
 
 async function refreshPositions() {
   const data = await api("/api/positions");
-  const tbody = document.getElementById("positions-body");
 
+  // Market positions
+  const tbody = document.getElementById("positions-body");
   if (!data || data.error || !data.positions || !data.positions.length) {
-    tbody.innerHTML = '<tr><td colspan="7" class="empty-msg">No positions</td></tr>';
-    return;
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-msg">No market positions</td></tr>';
+  } else {
+    tbody.innerHTML = data.positions.map(p => {
+      const posSign = p.position > 0 ? "+" : "";
+      const posClass = p.position > 0 ? "pnl-pos" : p.position < 0 ? "pnl-neg" : "";
+      return `<tr>
+        <td class="ticker-cell">${p.ticker}</td>
+        <td class="${posClass}">${posSign}${p.position}</td>
+        <td>$${p.market_exposure_dollars || "0.00"}</td>
+        <td>$${p.total_traded_dollars || "0.00"}</td>
+        <td>$${p.fees_paid_dollars || "0.00"}</td>
+        <td class="${pnlClass(p.realized_pnl)}">$${p.realized_pnl_dollars || "0.00"}</td>
+        <td>${p.resting_orders_count || 0}</td>
+      </tr>`;
+    }).join("");
   }
 
-  tbody.innerHTML = data.positions.map(p => `
-    <tr>
-      <td class="ticker-cell">${p.ticker}</td>
-      <td>${p.position}</td>
-      <td>${p.resting_order_count || 0}</td>
-      <td>${p.total_cost != null ? dollars(p.total_cost) : "--"}</td>
-      <td>${p.fees_paid != null ? dollars(p.fees_paid) : "--"}</td>
-      <td class="${pnlClass(p.realized_pnl)}">${p.realized_pnl != null ? dollars(p.realized_pnl) : "--"}</td>
-      <td>${p.market_result || "--"}</td>
-    </tr>
-  `).join("");
+  // Event positions
+  const epBody = document.getElementById("event-positions-body");
+  if (!data || data.error || !data.event_positions || !data.event_positions.length) {
+    epBody.innerHTML = '<tr><td colspan="5" class="empty-msg">No event positions</td></tr>';
+  } else {
+    epBody.innerHTML = data.event_positions.map(ep => `
+      <tr>
+        <td class="ticker-cell">${ep.event_ticker}</td>
+        <td>$${ep.event_exposure_dollars || "0.00"}</td>
+        <td>$${ep.total_cost_dollars || "0.00"}</td>
+        <td>$${ep.fees_paid_dollars || "0.00"}</td>
+        <td class="${pnlClass(ep.realized_pnl)}">$${ep.realized_pnl_dollars || "0.00"}</td>
+      </tr>
+    `).join("");
+  }
 }
 
 // ── Poll loop ────────────────────────────────────────────────────────────

@@ -162,11 +162,69 @@ def _get_client(config: dict):
 # ── Raw HTTP helpers ──────────────────────────────────────────────────────
 
 def _fetch_json(url: str) -> dict | None:
+    """Unauthenticated JSON GET (for public endpoints like events, orderbook)."""
     req = urllib.request.Request(url)
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
             return json.loads(resp.read().decode())
     except Exception:
+        return None
+
+
+def _build_auth_headers(config: dict, method: str, url: str) -> dict:
+    """Build Kalshi RSA-PSS auth headers from config (mirrors SDK signing)."""
+    import base64
+    from urllib.parse import urlparse
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import padding
+
+    api_key_id = config.get("api_key_id") or os.environ.get("KALSHI_API_KEY_ID", "")
+    private_key_pem = config.get("private_key_pem")
+    private_key_path = config.get("private_key_path") or os.environ.get("KALSHI_PRIVATE_KEY_PATH", "")
+
+    if not private_key_pem and private_key_path:
+        private_key_pem = Path(private_key_path).expanduser().read_text()
+
+    if not api_key_id or not private_key_pem:
+        raise ValueError("Missing API key or private key for auth")
+
+    private_key = serialization.load_pem_private_key(private_key_pem.encode(), password=None)
+
+    parsed = urlparse(url)
+    path = parsed.path
+
+    ts = str(int(time.time() * 1000))
+    msg = f"{ts}{method.upper()}{path}".encode("utf-8")
+
+    sig = private_key.sign(
+        msg,
+        padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.DIGEST_LENGTH),
+        hashes.SHA256(),
+    )
+
+    return {
+        "KALSHI-ACCESS-KEY": api_key_id,
+        "KALSHI-ACCESS-SIGNATURE": base64.b64encode(sig).decode("utf-8"),
+        "KALSHI-ACCESS-TIMESTAMP": ts,
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+
+
+def _fetch_authed_json(config: dict, host: str, path: str) -> dict | None:
+    """Authenticated JSON GET (for portfolio endpoints that need signing).
+
+    Bypasses the SDK to avoid Pydantic deserialization bugs (e.g. positions
+    API returns 'market_positions'/'event_positions' but SDK expects 'positions').
+    """
+    url = f"{host}{path}"
+    try:
+        headers = _build_auth_headers(config, "GET", url)
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return json.loads(resp.read().decode())
+    except Exception as e:
+        print(f"  _fetch_authed_json error for {path}: {e}", file=sys.stderr)
         return None
 
 
@@ -208,28 +266,61 @@ def api_balance():
 
 @app.route("/api/positions")
 def api_positions():
+    """Fetch positions via raw HTTP (bypasses SDK bug).
+
+    The SDK's GetPositionsResponse model expects a 'positions' key, but the
+    Kalshi API returns 'market_positions' and 'event_positions'. The SDK
+    silently drops all position data. We use authenticated raw HTTP instead.
+    """
     config = _load_project_config()
-    client = _get_client(config)
-    if client is None:
-        return jsonify({"error": "Kalshi client not configured"}), 503
+    host = _get_host(config)
 
     try:
-        resp = client.get_positions(limit=100)
-        positions = getattr(resp, "positions", []) or []
+        data = _fetch_authed_json(config, host, "/portfolio/positions?limit=200")
+        if data is None:
+            return jsonify({"error": "Failed to fetch positions (auth or network error)"}), 502
+
+        market_positions = data.get("market_positions", []) or []
+        event_positions = data.get("event_positions", []) or []
 
         result = []
-        for p in positions:
+        for p in market_positions:
+            pos = p.get("position", 0)
+            if pos == 0 and p.get("resting_orders_count", 0) == 0:
+                continue
             result.append({
-                "ticker": getattr(p, "ticker", "?"),
-                "event_ticker": getattr(p, "event_ticker", ""),
-                "position": getattr(p, "position", 0),
-                "resting_order_count": getattr(p, "resting_order_count", 0),
-                "realized_pnl": getattr(p, "realized_pnl", 0),
-                "fees_paid": getattr(p, "fees_paid", 0),
-                "total_cost": getattr(p, "total_cost", 0),
-                "market_result": getattr(p, "market_result", ""),
+                "ticker": p.get("ticker", "?"),
+                "position": pos,
+                "market_exposure": p.get("market_exposure", 0),
+                "market_exposure_dollars": p.get("market_exposure_dollars", "0.00"),
+                "resting_orders_count": p.get("resting_orders_count", 0),
+                "realized_pnl": p.get("realized_pnl", 0),
+                "realized_pnl_dollars": p.get("realized_pnl_dollars", "0.00"),
+                "fees_paid": p.get("fees_paid", 0),
+                "fees_paid_dollars": p.get("fees_paid_dollars", "0.00"),
+                "total_traded": p.get("total_traded", 0),
+                "total_traded_dollars": p.get("total_traded_dollars", "0.00"),
+                "last_updated_ts": p.get("last_updated_ts", ""),
             })
-        return jsonify({"positions": result})
+
+        event_result = []
+        for ep in event_positions:
+            event_result.append({
+                "event_ticker": ep.get("event_ticker", "?"),
+                "event_exposure": ep.get("event_exposure", 0),
+                "event_exposure_dollars": ep.get("event_exposure_dollars", "0.00"),
+                "total_cost": ep.get("total_cost", 0),
+                "total_cost_dollars": ep.get("total_cost_dollars", "0.00"),
+                "fees_paid": ep.get("fees_paid", 0),
+                "fees_paid_dollars": ep.get("fees_paid_dollars", "0.00"),
+                "realized_pnl": ep.get("realized_pnl", 0),
+                "realized_pnl_dollars": ep.get("realized_pnl_dollars", "0.00"),
+            })
+
+        return jsonify({
+            "positions": result,
+            "event_positions": event_result,
+        })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -368,16 +459,15 @@ def api_sync_watchers():
         existing = _load_store(store_path)
         created = []
 
-        # Sync from positions (filled contracts)
+        # Sync from positions (raw HTTP -- SDK drops market_positions)
         try:
-            pos_resp = client.get_positions(limit=100)
-            positions = getattr(pos_resp, "positions", []) or []
-            for p in positions:
-                ticker = getattr(p, "ticker", None)
-                pos_count = getattr(p, "position", 0)
+            pos_data = _fetch_authed_json(config, host, "/portfolio/positions?limit=200")
+            market_positions = (pos_data or {}).get("market_positions", []) or []
+            for p in market_positions:
+                ticker = p.get("ticker")
+                pos_count = p.get("position", 0)
                 if not ticker or ticker in existing:
                     continue
-                # Only watch positions with actual contracts
                 if pos_count == 0:
                     continue
 
@@ -389,7 +479,7 @@ def api_sync_watchers():
 
                 add_watcher(
                     store_path, ticker,
-                    entry_cents=0,  # unknown -- filled via external order
+                    entry_cents=0,
                     side=side,
                     contracts=contracts,
                     title=title,

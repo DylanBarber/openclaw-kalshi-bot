@@ -157,24 +157,45 @@
       </div>
     </section>
 
-    <!-- Positions Table -->
+    <!-- Market Positions Table -->
     <section class="panel" id="positions-panel">
-      <h2>Positions</h2>
+      <h2>Market Positions</h2>
       <div class="table-wrap">
         <table id="positions-table">
           <thead>
             <tr>
               <th>Ticker</th>
-              <th>Contracts</th>
-              <th>Resting Orders</th>
-              <th>Total Cost</th>
+              <th>Position</th>
+              <th>Exposure</th>
+              <th>Total Traded</th>
               <th>Fees Paid</th>
               <th>Realized P&amp;L</th>
-              <th>Result</th>
+              <th>Resting</th>
             </tr>
           </thead>
           <tbody id="positions-body">
             <tr><td colspan="7" class="empty-msg">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Event Positions Table -->
+    <section class="panel" id="event-positions-panel">
+      <h2>Event Positions</h2>
+      <div class="table-wrap">
+        <table id="event-positions-table">
+          <thead>
+            <tr>
+              <th>Event</th>
+              <th>Exposure</th>
+              <th>Total Cost</th>
+              <th>Fees Paid</th>
+              <th>Realized P&amp;L</th>
+            </tr>
+          </thead>
+          <tbody id="event-positions-body">
+            <tr><td colspan="5" class="empty-msg">Loading...</td></tr>
           </tbody>
         </table>
       </div>

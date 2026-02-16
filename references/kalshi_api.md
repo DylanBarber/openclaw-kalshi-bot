@@ -101,9 +101,60 @@ Raw JSON format (from the API):
 | Method | Description |
 |---|---|
 | `client.get_balance()` | Balance & portfolio value (in cents) |
-| `client.get_positions(ticker=, event_ticker=, limit=, cursor=)` | Open positions |
+| `client.get_positions(ticker=, event_ticker=, limit=, cursor=)` | Open positions — **BROKEN: see note below** |
 | `client.get_fills(ticker=, order_id=, limit=, cursor=)` | Fill history |
 | `client.get_settlements(ticker=, event_ticker=, limit=, cursor=)` | Settlements |
+
+### get_positions response
+
+**WARNING: SDK bug in kalshi-python v2.1.4** — The SDK's `GetPositionsResponse`
+Pydantic model expects a `"positions"` JSON key, but the Kalshi API returns
+`"market_positions"` and `"event_positions"`.  The SDK silently drops ALL
+position data (`resp.positions` is always `None`).
+
+Our code bypasses the SDK for this endpoint and uses authenticated raw HTTP
+via `_fetch_authed_json()` in both `runner.py` and `api_server.py`.
+
+Raw JSON format (from the API):
+```json
+{
+  "cursor": "",
+  "market_positions": [
+    {
+      "ticker": "KXPRESPERSON-28-GNEWS",
+      "position": 48,
+      "market_exposure": 1008,
+      "market_exposure_dollars": "10.0800",
+      "fees_paid": 58,
+      "fees_paid_dollars": "0.5800",
+      "realized_pnl": 0,
+      "realized_pnl_dollars": "0.0000",
+      "resting_orders_count": 0,
+      "total_traded": 1008,
+      "total_traded_dollars": "10.0800",
+      "last_updated_ts": "2026-02-16T01:17:25.949347Z"
+    }
+  ],
+  "event_positions": [
+    {
+      "event_ticker": "KXPRESPERSON-28",
+      "event_exposure": 1736,
+      "event_exposure_dollars": "17.3600",
+      "total_cost": 1736,
+      "total_cost_dollars": "17.3600",
+      "fees_paid": 58,
+      "fees_paid_dollars": "0.5800",
+      "realized_pnl": 0,
+      "realized_pnl_dollars": "0.0000"
+    }
+  ]
+}
+```
+
+- `position` > 0 = net long YES; < 0 = net short YES (long NO)
+- `market_exposure` / `event_exposure` = current dollar exposure in cents
+- `total_traded` = total volume traded in cents
+- Values with `_dollars` suffix are pre-formatted string dollar amounts
 
 ## Order Management
 

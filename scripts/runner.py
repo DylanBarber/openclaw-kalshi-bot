@@ -274,6 +274,74 @@ def _fetch_json_raw(url: str) -> dict | None:
         return None
 
 
+def _fetch_authed_json(cfg: dict, host: str, path: str) -> dict | None:
+    """Authenticated JSON GET via raw HTTP (bypasses SDK deserialization bugs).
+
+    Uses RSA-PSS signing identical to the SDK's KalshiAuth class.
+    Required for portfolio endpoints where the SDK's Pydantic models silently
+    drop data (e.g. positions API returns 'market_positions' but SDK expects 'positions').
+    """
+    import base64
+    import time
+    import urllib.request
+    import urllib.error
+    from urllib.parse import urlparse
+
+    try:
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import padding
+    except ImportError:
+        print("  ERROR: cryptography package required for auth.  pip install cryptography", file=sys.stderr)
+        return None
+
+    api_key_id = cfg.get("api_key_id") or os.environ.get("KALSHI_API_KEY_ID", "")
+    private_key_pem = cfg.get("private_key_pem")
+    private_key_path = cfg.get("private_key_path") or os.environ.get("KALSHI_PRIVATE_KEY_PATH", "")
+
+    if not private_key_pem and private_key_path:
+        private_key_pem = Path(private_key_path).expanduser().read_text()
+
+    if not api_key_id or not private_key_pem:
+        print("  ERROR: Missing API key or private key for auth.", file=sys.stderr)
+        return None
+
+    url = f"{host}{path}"
+    parsed = urlparse(url)
+    sign_path = parsed.path  # sign only the path, not query string
+
+    ts = str(int(time.time() * 1000))
+    msg = f"{ts}GET{sign_path}".encode("utf-8")
+
+    private_key = serialization.load_pem_private_key(private_key_pem.encode(), password=None)
+    sig = private_key.sign(
+        msg,
+        padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.DIGEST_LENGTH),
+        hashes.SHA256(),
+    )
+
+    req = urllib.request.Request(url)
+    req.add_header("KALSHI-ACCESS-KEY", api_key_id)
+    req.add_header("KALSHI-ACCESS-SIGNATURE", base64.b64encode(sig).decode("utf-8"))
+    req.add_header("KALSHI-ACCESS-TIMESTAMP", ts)
+    req.add_header("Content-Type", "application/json")
+    req.add_header("Accept", "application/json")
+
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return json.loads(resp.read().decode())
+    except urllib.error.HTTPError as e:
+        body = ""
+        try:
+            body = e.read().decode()[:200]
+        except Exception:
+            pass
+        print(f"  ERROR: HTTP {e.code} for {path}: {body}", file=sys.stderr)
+        return None
+    except Exception as e:
+        print(f"  ERROR: {e}", file=sys.stderr)
+        return None
+
+
 def cmd_events(_client, args):
     """List / search events (the correct way to discover markets)."""
     cfg = load_config()
@@ -557,27 +625,60 @@ def cmd_orders(client, args):
               f"yes_price={o.yes_price}  status={o.status}")
 
 
-def cmd_positions(client, args):
-    """Show current positions."""
-    kwargs: dict[str, Any] = {"limit": args.limit}
+def cmd_positions(_client, args):
+    """Show current positions via raw HTTP (SDK drops market_positions data).
+
+    The SDK's GetPositionsResponse Pydantic model expects a 'positions' key,
+    but the API returns 'market_positions' and 'event_positions'.  The SDK
+    silently drops all position data.  We bypass it with authenticated raw HTTP.
+    """
+    cfg = load_config()
+    host = cfg.get("host", DEFAULT_HOST)
+
+    path = "/portfolio/positions?limit=200"
     if args.ticker:
-        kwargs["ticker"] = args.ticker
+        path += f"&ticker={args.ticker}"
     if args.event:
-        kwargs["event_ticker"] = args.event
+        path += f"&event_ticker={args.event}"
 
-    resp = client.get_positions(**kwargs)
-    positions = getattr(resp, "market_positions", None) or getattr(resp, "positions", []) or []
+    data = _fetch_authed_json(cfg, host, path)
+    if data is None:
+        print("  ERROR: Failed to fetch positions (auth or network error).", file=sys.stderr)
+        return
 
-    if not positions:
+    market_positions = data.get("market_positions", []) or []
+    event_positions = data.get("event_positions", []) or []
+
+    # Filter to non-zero positions unless showing all
+    active = [p for p in market_positions if p.get("position", 0) != 0]
+
+    if not active and not event_positions:
         print("  No open positions.")
         return
 
-    for p in positions:
-        ticker = getattr(p, "ticker", getattr(p, "market_ticker", "?"))
-        position = getattr(p, "position", 0)
-        market_exposure = getattr(p, "market_exposure", None)
-        realized_pnl = getattr(p, "realized_pnl", None)
-        print(f"  {ticker:<30s}  position={position}  exposure={market_exposure}  realized_pnl={realized_pnl}")
+    if active:
+        print(f"\n  {'Ticker':<35s} {'Pos':>5s} {'Exposure':>10s} {'Fees':>8s} {'P&L':>8s} {'Resting':>7s}")
+        print("  " + "-" * 80)
+        for p in active:
+            ticker = p.get("ticker", "?")
+            pos = p.get("position", 0)
+            exposure = p.get("market_exposure_dollars", "0.00")
+            fees = p.get("fees_paid_dollars", "0.00")
+            pnl = p.get("realized_pnl_dollars", "0.00")
+            resting = p.get("resting_orders_count", 0)
+            print(f"  {ticker:<35s} {pos:>5d} ${exposure:>8s} ${fees:>6s} ${pnl:>6s} {resting:>7d}")
+
+    if event_positions:
+        print(f"\n  Event-level aggregates:")
+        print(f"  {'Event':<35s} {'Exposure':>10s} {'Cost':>10s} {'Fees':>8s} {'P&L':>8s}")
+        print("  " + "-" * 75)
+        for ep in event_positions:
+            et = ep.get("event_ticker", "?")
+            exp = ep.get("event_exposure_dollars", "0.00")
+            cost = ep.get("total_cost_dollars", "0.00")
+            fees = ep.get("fees_paid_dollars", "0.00")
+            pnl = ep.get("realized_pnl_dollars", "0.00")
+            print(f"  {et:<35s} ${exp:>8s} ${cost:>8s} ${fees:>6s} ${pnl:>6s}")
 
 
 def cmd_balance(client, _args):
@@ -822,7 +923,7 @@ COMMAND_MAP = {
 }
 
 # Commands that don't need the SDK client (use raw HTTP)
-NO_CLIENT_COMMANDS = {"watch", "events"}
+NO_CLIENT_COMMANDS = {"watch", "events", "positions"}
 
 
 def main():
