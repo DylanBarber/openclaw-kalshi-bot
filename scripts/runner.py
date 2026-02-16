@@ -15,11 +15,13 @@ Usage:
     python runner.py positions [--ticker TICKER] [--event EVENT]
     python runner.py balance
     python runner.py fills [--ticker TICKER] [--limit 20]
+    python runner.py series [--category Crypto] [--frequency fifteen_min]
+    python runner.py series KXBTC15M [--events]
     python runner.py run-strategy <strategy_name> [--ticker TICKER] [-- ...]
 
 Market discovery uses the /events endpoint (not /markets, which only returns
-esports combo tickers).  The `events` and `markets search` commands use raw HTTP
-and do NOT require Kalshi SDK auth.
+esports combo tickers).  The `events`, `markets search`, and `series` commands
+use raw HTTP and do NOT require Kalshi SDK auth.
 
 Credentials are loaded from config.yaml (or KALSHI_API_KEY_ID / KALSHI_PRIVATE_KEY_PATH env vars).
 """
@@ -801,6 +803,121 @@ def cmd_run_strategy(client, args):
 
 
 # ---------------------------------------------------------------------------
+# Series discovery
+# ---------------------------------------------------------------------------
+
+
+def cmd_series(_client, args):
+    """List/search series and their events (crypto, daily, etc.)."""
+    cfg = load_config()
+    host = cfg.get("host", DEFAULT_HOST)
+
+    series_ticker = getattr(args, "series_ticker", None)
+    category = getattr(args, "category", None)
+    frequency = getattr(args, "frequency", None)
+    show_events = getattr(args, "show_events", False)
+
+    # ── Single series detail ──
+    if series_ticker:
+        # Fetch series info
+        data = _fetch_json_raw(f"{host}/series/{series_ticker}")
+        if data and data.get("series"):
+            s = data["series"]
+            print(f"\n  Series: {s.get('ticker', '')}")
+            print(f"  Title:     {s.get('title', '')}")
+            print(f"  Category:  {s.get('category', '')}")
+            print(f"  Frequency: {s.get('frequency', '')}")
+            print(f"  Fee type:  {s.get('fee_type', '')}")
+            tags = s.get("tags") or []
+            if tags:
+                print(f"  Tags:      {', '.join(tags)}")
+            sources = s.get("settlement_sources") or []
+            for src in sources:
+                print(f"  Source:    {src.get('name', '')} ({src.get('url', '')})")
+        else:
+            print(f"  Series '{series_ticker}' not found.")
+            return
+
+        # Fetch events for this series
+        limit = getattr(args, "limit", 20)
+        ev_data = _fetch_json_raw(f"{host}/events?series_ticker={series_ticker}&limit={limit}")
+        if ev_data and ev_data.get("events"):
+            events = ev_data["events"]
+            print(f"\n  Events ({len(events)}):")
+            for ev in events:
+                et = ev.get("event_ticker", "")
+                title = ev.get("title", "")[:55]
+                status = ev.get("status", "")
+                print(f"    {et:<45s} [{status or '?'}]  {title}")
+
+                # If --events flag, also show markets within each event
+                if show_events:
+                    ev_detail = _fetch_json_raw(f"{host}/events/{et}")
+                    if ev_detail:
+                        markets = ev_detail.get("markets", [])
+                        for m in markets[:10]:
+                            mt = m.get("ticker", "")
+                            yb = m.get("yes_bid", 0) or 0
+                            ya = m.get("yes_ask", 0) or 0
+                            vol = m.get("volume", 0) or 0
+                            st = m.get("status", "")
+                            mtitle = m.get("title", "")[:40]
+                            print(f"      {mt:<42s} bid={yb:>2d} ask={ya:>3d} vol={vol:>6d} [{st}] {mtitle}")
+                        if len(markets) > 10:
+                            print(f"      ... and {len(markets) - 10} more markets")
+        else:
+            print(f"\n  No events found for series '{series_ticker}'.")
+        return
+
+    # ── List series (optionally filtered by category / frequency) ──
+    url = f"{host}/series?limit=200"
+    if category:
+        url += f"&category={category}"
+    data = _fetch_json_raw(url)
+    if not data or not data.get("series"):
+        print("  No series found.")
+        return
+
+    series_list = data.get("series", [])
+    if not isinstance(series_list, list):
+        print("  Unexpected series response format.")
+        return
+
+    # Filter by frequency if specified
+    if frequency:
+        series_list = [s for s in series_list
+                       if isinstance(s, dict) and frequency.lower() in (s.get("frequency", "")).lower()]
+
+    if not series_list:
+        print("  No series found matching filters.")
+        return
+
+    # Group by frequency for display
+    freq_groups: dict[str, list] = {}
+    for s in series_list:
+        if not isinstance(s, dict):
+            continue
+        f = s.get("frequency", "unknown")
+        freq_groups.setdefault(f, []).append(s)
+
+    total = sum(len(v) for v in freq_groups.values())
+    cat_label = f" [{category}]" if category else ""
+    freq_label = f" frequency={frequency}" if frequency else ""
+    print(f"\n  {total} series{cat_label}{freq_label}:\n")
+
+    for freq in sorted(freq_groups.keys()):
+        items = freq_groups[freq]
+        print(f"  {freq} ({len(items)}):")
+        for s in items:
+            ticker = s.get("ticker", "")
+            title = s.get("title", "")[:45]
+            print(f"    {ticker:<25s} {title}")
+        print()
+
+    print(f"  Use 'series <TICKER>' for detail, 'series <TICKER> --events' for markets.")
+
+
+# ---------------------------------------------------------------------------
 # CLI parser
 # ---------------------------------------------------------------------------
 
@@ -877,6 +994,18 @@ def build_parser() -> argparse.ArgumentParser:
     fills_p.add_argument("--ticker", help="Filter by ticker")
     fills_p.add_argument("--limit", type=int, default=20, help="Max results")
 
+    # ── series (crypto / daily series discovery) ───────────────────────────
+    series_p = sub.add_parser("series", help="List/search market series (crypto, daily, etc.)")
+    series_p.add_argument("series_ticker", nargs="?", default=None,
+                          help="Series ticker (e.g., KXBTC15M, KXBTC, KXETH)")
+    series_p.add_argument("--category", default=None,
+                          help="Filter by category (e.g., Crypto, Politics)")
+    series_p.add_argument("--frequency", default=None,
+                          help="Filter by frequency (fifteen_min, hourly, daily, weekly, monthly)")
+    series_p.add_argument("--events", action="store_true", dest="show_events",
+                          help="Show markets within each event")
+    series_p.add_argument("--limit", type=int, default=20, help="Max events to show")
+
     # ── run-strategy ───────────────────────────────────────────────────────
     strat_p = sub.add_parser("run-strategy", help="Run a named strategy")
     strat_p.add_argument("strategy_name", help="Strategy module name (without .py)")
@@ -918,12 +1047,13 @@ COMMAND_MAP = {
     "positions": cmd_positions,
     "balance": cmd_balance,
     "fills": cmd_fills,
+    "series": cmd_series,
     "run-strategy": cmd_run_strategy,
     "watch": cmd_watch,
 }
 
 # Commands that don't need the SDK client (use raw HTTP)
-NO_CLIENT_COMMANDS = {"watch", "events", "positions"}
+NO_CLIENT_COMMANDS = {"watch", "events", "positions", "series"}
 
 
 def main():
@@ -943,8 +1073,15 @@ def main():
     # markets search also uses raw HTTP (events-based discovery)
     if args.command == "markets" and getattr(args, "markets_cmd", None) == "search":
         needs_sdk = False
-
-    if needs_sdk:
+    # run-strategy: try to build client but pass None if it fails
+    # (some strategies like crypto_sentinel use raw HTTP only)
+    if args.command == "run-strategy":
+        needs_sdk = False
+        try:
+            client = build_client(cfg)
+        except (SystemExit, Exception):
+            client = None
+    elif needs_sdk:
         client = build_client(cfg)
     else:
         client = None

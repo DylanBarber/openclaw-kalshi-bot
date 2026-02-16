@@ -87,11 +87,38 @@ cd {baseDir} && .venv/bin/python scripts/runner.py positions
 cd {baseDir} && .venv/bin/python scripts/runner.py orders
 ```
 
-**Available categories:** Politics, Economics, Elections, Sports, Entertainment, Financials, Companies, Social, Climate and Weather, World, Science and Technology, Health, Transportation.
+**Available categories:** Politics, Economics, Elections, Sports, Entertainment, Financials, Companies, Social, Climate and Weather, World, Science and Technology, Health, Transportation, Crypto.
 
 **Important status filter values:** The valid `--status` query filter values are `unopened`, `open`, `paused`, `closed`, `settled`. Do NOT pass response-level statuses like `active` or `determined` — those are different. Omit `--status` entirely to get all markets.
 
-**Note on daily series markets:** Daily crypto brackets (KXBTC-*), index contracts (KXINX-*, KXNASDAQ100-*), and daily weather/temp markets return 404 on the current API host. These short-duration "series" markets are not available. Focus on event-based markets which have full L2 depth.
+### Crypto Market Discovery (Series)
+
+Crypto markets (15-minute, hourly, daily, weekly, monthly) are discoverable via the **series** endpoint. The `/series` command lists all available series and their events.
+
+```bash
+# List ALL crypto series (212+ series)
+cd {baseDir} && .venv/bin/python scripts/runner.py series --category Crypto
+
+# List only 15-minute crypto series
+cd {baseDir} && .venv/bin/python scripts/runner.py series --category Crypto --frequency fifteen_min
+
+# Show detail + events for a specific series
+cd {baseDir} && .venv/bin/python scripts/runner.py series KXBTC15M
+
+# Show events WITH their individual markets and prices
+cd {baseDir} && .venv/bin/python scripts/runner.py series KXBTC15M --events
+
+# Other useful series
+cd {baseDir} && .venv/bin/python scripts/runner.py series KXBTC      # Hourly BTC brackets
+cd {baseDir} && .venv/bin/python scripts/runner.py series KXBTCMAXW  # Weekly BTC max
+cd {baseDir} && .venv/bin/python scripts/runner.py series KXBTCD     # BTC above/below
+```
+
+**15-Minute series tickers:** `KXBTC15M` (BTC), `KXETH15M` (ETH), `KXSOL15M` (SOL), `KXXRP15M` (XRP)
+
+**Ticker format:** `KXBTC15M-{YYMONDDHHMI}-{MI}` (e.g., `KXBTC15M-26FEB170000-00` for Feb 17 at midnight)
+
+**Important:** 15-minute markets are only `active` during trading hours. Outside trading hours they show `initialized` status with empty orderbooks.
 
 ### Evaluating a Trade (dry run)
 
@@ -159,6 +186,65 @@ cd {baseDir} && .venv/bin/python scripts/runner.py fills --ticker <TICKER>
 cd {baseDir} && .venv/bin/python scripts/runner.py run-strategy example_spread --ticker <TICKER>
 ```
 
+### Crypto Position Management
+
+The `crypto_sentinel` strategy monitors real-time crypto prices from external feeds (Binance US / Coinbase / CoinGecko) and triggers stop-loss or take-profit exits on Kalshi. This is necessary because Kalshi's crypto bracket markets (KXBTC-*, KXETH-*) have unreliable L2 data and may not even be available on the elections API host.
+
+**Use crypto_sentinel when:**
+- The user wants to trade 15-minute crypto up/down markets
+- The user holds a crypto-related position (bracket or event market)
+- The user wants to monitor BTC/ETH/SOL prices with automatic stop/TP execution
+- The user asks about crypto markets on Kalshi
+
+**Mode 1: 15-Minute Trading (`--mode 15min`)**
+
+Trades the 15-minute "up or down" binary markets (KXBTC15M, KXETH15M, etc.):
+
+```bash
+# Scan available 15-minute series and their status
+cd {baseDir} && .venv/bin/python scripts/runner.py run-strategy crypto_sentinel --ticker BTC -- --scan-series
+
+# Dry-run: sample price, find active market, determine direction, show order
+cd {baseDir} && .venv/bin/python scripts/runner.py run-strategy crypto_sentinel --ticker BTC -- --mode 15min --dry-run
+
+# Live: trade 10 contracts on the current 15-minute BTC market
+cd {baseDir} && .venv/bin/python scripts/runner.py run-strategy crypto_sentinel --ticker BTC -- --mode 15min --contracts 10
+
+# Trade ETH 15-minute markets
+cd {baseDir} && .venv/bin/python scripts/runner.py run-strategy crypto_sentinel --ticker ETH -- --mode 15min --dry-run
+```
+
+How 15-minute mode works:
+1. Fetches real-time price from Binance US to determine if price is trending UP or DOWN
+2. Finds the current active 15-minute market via `/events?series_ticker=KXBTC15M`
+3. Reads the L2 orderbook to determine entry price
+4. Places a limit order: YES if trending up, NO if trending down
+5. Starts a watcher to monitor the position
+
+**Mode 2: Price Watch with Stop/TP (`--mode watch`, default)**
+
+```bash
+# Watch BTC with stop-loss and take-profit (always --dry-run first)
+cd {baseDir} && .venv/bin/python scripts/runner.py run-strategy crypto_sentinel --ticker BTC -- --stop 65000 --tp 72000 --dry-run
+
+# Live monitoring with auto-exit
+cd {baseDir} && .venv/bin/python scripts/runner.py run-strategy crypto_sentinel --ticker BTC -- --stop 65000 --tp 72000
+
+# Scan for crypto-related events on Kalshi
+cd {baseDir} && .venv/bin/python scripts/runner.py run-strategy crypto_sentinel --ticker BTC -- --scan-events
+
+# Change price source (binance = default, coinbase, coingecko)
+cd {baseDir} && .venv/bin/python scripts/runner.py run-strategy crypto_sentinel --ticker ETH -- --stop 1800 --tp 2200 --price-source coinbase
+```
+
+**Supported assets:** BTC, ETH, SOL, XRP, DOGE, ADA, AVAX, MATIC, DOT, LINK
+
+**Important limitations:**
+- 15-minute markets are only `active` during Kalshi trading hours — outside hours they show `initialized` with empty books
+- The strategy samples prices over a short window to determine direction — this is momentum-based, not predictive
+- Exit orders may not fill on thin books; the strategy places limit orders
+- Binance.com is geo-blocked in the US (HTTP 451); the strategy uses Binance US instead
+
 ## Decision-Making Workflow
 
 When the user asks you to find a trade or evaluate an opportunity, follow this sequence:
@@ -184,7 +270,7 @@ When the user asks you to find a trade or evaluate an opportunity, follow this s
 | Assuming an order filled without checking | Run `runner.py orders` or `runner.py fills` to confirm |
 | Empty orderbook data | Check the market is `open`/`active`, the ticker is valid, and the market isn't a multi-event summary. Some markets genuinely have thin/no books. |
 | Using `get_markets()` or `/markets` listing to discover markets | This only returns esports combo tickers. Use `runner.py events` or `runner.py markets search` (events-based discovery) instead. |
-| Searching for KXBTC, KXINX, KXNASDAQ100 daily series tickers | These return 404 — daily series markets are not on this API host. Use event-based markets instead. |
+| Searching for KXBTC, KXINX daily series tickers by guessing | Use the `series` command: `runner.py series KXBTC15M --events` to discover active tickers. The `/series` endpoint is the correct way to find crypto/daily markets. |
 | `client.get_positions()` returns empty/None | SDK bug: API returns `market_positions`/`event_positions` but SDK model expects `positions`. Use `runner.py positions` which bypasses the SDK with authenticated raw HTTP. |
 
 ### API Host & Market Discovery
@@ -197,7 +283,7 @@ The default host is `https://api.elections.kalshi.com/trade-api/v2` (production)
 2. Use `runner.py markets search <query>` which uses events-based discovery internally
 3. Use `runner.py markets search --event <EVENT_TICKER>` to list markets within an event
 
-There are ~2,900+ active markets across categories (Politics, Economics, Sports, etc.) all with full L2 orderbook depth. Daily crypto/index series (KXBTC-*, KXINX-*) are NOT available on this host.
+There are ~2,900+ active markets across categories (Politics, Economics, Sports, etc.) all with full L2 orderbook depth. Crypto series (15-min, hourly, daily, weekly, monthly) with 212+ series are discoverable via the `series` command.
 
 If the orderbook comes back empty for a valid open market, the issue is likely:
 1. The market is a multivariate event (combo) — these don't have standalone orderbooks
@@ -244,6 +330,7 @@ Risk parameters live in `{baseDir}/scripts/config.yaml` under the `risk:` key. T
 | `scripts/trade_engine.py` | `TradeParams` -> `evaluate_trade()` -> `TradeEvaluation`. Contains gate logic, order ticket formatting, `place_limit_order()`, `check_risk_limits()`. |
 | `scripts/strategies/fee_aware_mm.py` | Full strategy: reads book, builds `TradeParams`, evaluates, executes. Supports `--dry-run`, `--loop`, `--side`, `--contract`, `--entry`, `--exit`, `--count`. |
 | `scripts/strategies/example_spread.py` | Lightweight: watches spread, prints evaluation when it tightens below threshold. |
+| `scripts/strategies/crypto_sentinel.py` | Crypto price monitor: uses external price feeds (Binance US/Coinbase/CoinGecko) to trigger stop-loss/take-profit exits on crypto-related Kalshi positions. Bypasses Kalshi L2 limitations. |
 | `references/trading_doctrine.md` | Complete formula reference — read this if you need to verify or explain any calculation. |
 | `references/kalshi_api.md` | SDK method signatures and response fields. |
 

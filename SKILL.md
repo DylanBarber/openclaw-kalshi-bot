@@ -36,7 +36,8 @@ scripts/
 ├── requirements.txt       Python dependencies
 └── strategies/
     ├── fee_aware_mm.py    Fee-aware market-making strategy (auto-starts watcher on fill)
-    └── example_spread.py  Simple spread watcher
+    ├── example_spread.py  Simple spread watcher
+    └── crypto_sentinel.py External-price-triggered crypto position manager
 ui/
 ├── api_server.py          Flask REST API for the dashboard
 └── static/
@@ -87,9 +88,32 @@ cd {baseDir} && .venv/bin/python scripts/runner.py orderbook KXDEELRIP-40-DEEL -
 
 **Available categories:** Politics, Economics, Elections, Sports, Entertainment, Financials, Companies, Social, Climate and Weather, World, Science and Technology, Health, Transportation.
 
-**Note:** Daily crypto/index series (KXBTC-*, KXINX-*, KXNASDAQ100-*) are not available on the current API host (404). Use event-based markets instead.
+**Crypto series discovery:** Use the `series` command to find 15-minute, hourly, daily, weekly, and monthly crypto markets (212+ series).
 
 Valid `--status` query filter values: `unopened`, `open`, `paused`, `closed`, `settled`. Do NOT use response-level statuses like `active` or `determined` as filter values. Omit `--status` to return all markets.
+
+### Series Discovery (Crypto, Daily, etc.)
+
+```bash
+# List all crypto series (212+ series across 15min, hourly, daily, weekly, monthly)
+python scripts/runner.py series --category Crypto
+
+# List only 15-minute crypto series
+python scripts/runner.py series --category Crypto --frequency fifteen_min
+
+# Detail for a specific series + its upcoming events
+python scripts/runner.py series KXBTC15M
+
+# Show events WITH individual market tickers and prices
+python scripts/runner.py series KXBTC15M --events
+
+# Hourly BTC brackets
+python scripts/runner.py series KXBTC --events
+```
+
+**15-Minute series:** `KXBTC15M`, `KXETH15M`, `KXSOL15M`, `KXXRP15M`
+
+**Ticker format:** `KXBTC15M-{YYMONDDHHMI}-{MI}` (e.g., `KXBTC15M-26FEB170000-00`)
 
 ### Trading
 
@@ -148,6 +172,51 @@ python scripts/runner.py run-strategy fee_aware_mm --ticker KXBTC-26FEB14-T50050
 python scripts/runner.py run-strategy fee_aware_mm --ticker KXBTC-26FEB14-T50050 -- --loop --interval 15
 ```
 
+### Crypto Sentinel Strategy
+
+Two modes: (1) trade 15-minute crypto up/down markets, (2) monitor prices with stop/TP triggers.
+
+**Mode 1: 15-Minute Trading (`--mode 15min`)**
+
+Trades binary "BTC up or down in 15 minutes?" markets using external price momentum:
+
+```bash
+# Scan available 15-minute series
+python scripts/runner.py run-strategy crypto_sentinel --ticker BTC -- --scan-series
+
+# Dry-run: find active market, determine direction, show order
+python scripts/runner.py run-strategy crypto_sentinel --ticker BTC -- --mode 15min --dry-run
+
+# Trade 10 contracts on the current BTC 15-minute market
+python scripts/runner.py run-strategy crypto_sentinel --ticker BTC -- --mode 15min --contracts 10
+
+# ETH 15-minute markets
+python scripts/runner.py run-strategy crypto_sentinel --ticker ETH -- --mode 15min --dry-run
+```
+
+**Mode 2: Price Watch with Stop/TP (`--mode watch`, default)**
+
+Uses external spot price as trigger signal for managing existing positions:
+
+```bash
+# Watch BTC with stop-loss and take-profit
+python scripts/runner.py run-strategy crypto_sentinel --ticker BTC -- --stop 65000 --tp 72000 --dry-run
+
+# Scan for crypto-related events
+python scripts/runner.py run-strategy crypto_sentinel --ticker BTC -- --scan-events
+
+# Use Coinbase as price source
+python scripts/runner.py run-strategy crypto_sentinel --ticker BTC -- --stop 65000 --tp 72000 --price-source coinbase
+```
+
+**Supported assets:** BTC, ETH, SOL, XRP, DOGE, ADA, AVAX, MATIC, DOT, LINK
+
+**Limitations:**
+- 15-minute markets are only `active` during Kalshi trading hours
+- Direction detection is momentum-based (short price sample), not predictive
+- Exit orders are limit orders; fills not guaranteed on thin books
+- Price sources: Binance US (default, best rate limits), Coinbase, CoinGecko (~10-30 req/min)
+
 ## Trading Doctrine
 
 Every trade is evaluated through four mandatory gates before execution:
@@ -187,7 +256,7 @@ For SDK method signatures and response models, see [references/kalshi_api.md](re
 - **Positions response bug**: The SDK's `GetPositionsResponse` model expects a `"positions"` key, but the API returns `"market_positions"` and `"event_positions"`. The SDK silently drops ALL position data (`resp.positions` is always `None`). All position fetches in this skill use authenticated raw HTTP via `_fetch_authed_json()`. The `positions` command and UI dashboard both bypass the SDK for this endpoint.
 - **Status filter values**: Query filters accept `unopened`, `open`, `paused`, `closed`, `settled`. Do NOT use response-level values like `active`.
 - **Broken `/markets` listing**: The `get_markets()` call / `/markets` endpoint only returns multivariate esports combo markets. All real tradeable markets are only discoverable via the `/events` endpoint. Use `runner.py events` and `runner.py markets search` (events-based discovery) instead.
-- **Daily series unavailable**: KXBTC-*, KXINX-*, KXNASDAQ100-*, daily weather/temp tickers all return 404. These short-duration series markets are not on the `api.elections.kalshi.com` host.
+- **Crypto/daily series discovery**: Use the `/series` endpoint (`runner.py series`) to discover crypto markets (15-min, hourly, daily, weekly, monthly — 212+ series). Do NOT guess ticker patterns.
 
 ## Key Concepts
 

@@ -55,7 +55,60 @@ Daily series tickers return **404 Not Found**:
 - `KXINX-*` (S&P 500), `KXNASDAQ100-*` (Nasdaq)
 - Daily weather/temperature markets
 
-These short-duration series markets live on a different Kalshi API partition that is not currently accessible.
+**UPDATE:** Crypto and other series markets ARE accessible via the `/series` endpoint. See Series API below.
+
+## Series API (Crypto / Daily / Hourly Market Discovery)
+
+The `/series` endpoint provides access to 212+ crypto series and other repeating market types.
+
+### Endpoints (raw HTTP, no SDK needed)
+
+| Endpoint | Description |
+|---|---|
+| `GET /series?category=Crypto&limit=200` | List all crypto series |
+| `GET /series/{ticker}` | Detail for a single series (title, frequency, category, tags) |
+| `GET /events?series_ticker={ticker}&limit=20` | Events (time windows) within a series |
+
+### Key crypto series
+
+| Series | Frequency | Title | Ticker Format |
+|---|---|---|---|
+| `KXBTC15M` | fifteen_min | BTC Up or Down - 15 minutes | `KXBTC15M-{YYMONDDHHMI}-{MI}` |
+| `KXETH15M` | fifteen_min | ETH 15M price up down | `KXETH15M-{YYMONDDHHMI}-{MI}` |
+| `KXSOL15M` | fifteen_min | Solana 15 minutes | `KXSOL15M-{YYMONDDHHMI}-{MI}` |
+| `KXXRP15M` | fifteen_min | XRP 15 Minute | `KXXRP15M-{YYMONDDHHMI}-{MI}` |
+| `KXBTC` | hourly | Bitcoin range | `KXBTC-{YYMONDDHHMI}-B{strike}` |
+| `KXETH` | hourly | Ethereum range | `KXETH-{YYMONDDHHMI}-B{strike}` |
+| `KXBTCD` | hourly | Bitcoin price Above/below | `KXBTCD-*` |
+| `KXBTCMAXW` | weekly | How high will Bitcoin get this week? | `KXBTCMAXW-*` |
+| `KXBTCMAXM` | monthly | How high will Bitcoin get this month? | `KXBTCMAXM-*` |
+
+### Series response structure
+
+```json
+{
+  "series": {
+    "ticker": "KXBTC15M",
+    "title": "Bitcoin price up down",
+    "category": "Crypto",
+    "frequency": "fifteen_min",
+    "fee_type": "quadratic",
+    "tags": ["15 min", "BTC"],
+    "settlement_sources": [{"name": "CF Benchmarks", "url": "..."}]
+  }
+}
+```
+
+### Frequency values
+
+`fifteen_min`, `hourly`, `daily`, `weekly`, `monthly`, `annual`, `custom`, `one_off`
+
+### 15-minute market notes
+
+- Each 15-minute event contains ONE binary market: "BTC price up in next 15 mins?" (YES/NO)
+- Markets cycle through statuses: `initialized` -> `active` (tradeable) -> `closed` -> `settled`
+- Only `active` markets have orderbook data and accept orders
+- Markets are only active during Kalshi trading hours
 
 ## Markets API
 
