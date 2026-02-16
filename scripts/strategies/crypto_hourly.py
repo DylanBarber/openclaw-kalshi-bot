@@ -52,7 +52,7 @@ Extra args (passed after --):
     --max-strikes N             Max strikes near ATM to evaluate (default: 5)
 
 Limitations:
-    - Hourly events may be 'initialized' outside trading hours
+    - Hourly events may be 'initialized' before their trading window opens
     - Volatility model is a simple estimate, not a full options pricer
     - L2 data can be thin on less popular assets (SOL, DOGE, XRP)
     - Exit is via watcher — no built-in exit loop in this strategy
@@ -205,10 +205,11 @@ def _norm_cdf(x: float) -> float:
 def find_active_hourly_events(host: str, asset: str, mode: str = "directional") -> list[dict]:
     """Find ALL active hourly events for a crypto asset, sorted by nearest expiry.
 
-    The Kalshi API returns events in reverse chronological order (furthest-out
-    first), and there can be MULTIPLE active events at once (e.g., one expiring
-    in 2 hours and another in 5 days).  We collect all active events and sort
-    by close_time ascending so the nearest-expiry event comes first.
+    Uses the ``status=open`` filter on the /events endpoint so the API returns
+    only events that are currently tradeable.  Without this filter the API
+    returns events in reverse chronological order (furthest-out first) and many
+    near-term active events get buried past our limit — which is why the bot
+    was previously unable to see live markets.
 
     Returns list of {event_ticker, title, status, close_time_str, markets: [...]}.
     """
@@ -219,8 +220,8 @@ def find_active_hourly_events(host: str, asset: str, mode: str = "directional") 
     if not series:
         return []
 
-    # Fetch more events to catch near-term ones buried deeper in the list
-    data = _fetch_json_raw(f"{host}/events?series_ticker={series}&limit=30")
+    # status=open returns ONLY active/tradeable events — fast and reliable
+    data = _fetch_json_raw(f"{host}/events?series_ticker={series}&status=open&limit=50")
     if not data:
         return []
 
@@ -238,7 +239,6 @@ def find_active_hourly_events(host: str, asset: str, mode: str = "directional") 
 
         if active_markets:
             parsed_markets = _parse_event_markets(markets, mode)
-            # Extract close_time from the first active market
             close_time_str = active_markets[0].get("close_time", "")
             active_events.append({
                 "event_ticker": et,
@@ -273,24 +273,37 @@ def find_active_hourly_event(host: str, asset: str, mode: str = "directional") -
     if not series:
         return None
 
-    data = _fetch_json_raw(f"{host}/events?series_ticker={series}&limit=5")
+    # Use unfiltered query to find initialized events (future time slots)
+    data = _fetch_json_raw(f"{host}/events?series_ticker={series}&limit=10")
     if not data:
         return None
 
     events = data.get("events", [])
+    # Collect all initialized events and pick the nearest by close_time
+    initialized_events = []
     for ev in events:
         et = ev.get("event_ticker", "")
         ev_data = _fetch_json_raw(f"{host}/events/{et}")
-        if ev_data:
-            markets = ev_data.get("markets", [])
+        if not ev_data:
+            continue
+        markets = ev_data.get("markets", [])
+        if not markets:
+            continue
+        status = markets[0].get("status", "unknown")
+        if status == "initialized":
+            close_time_str = markets[0].get("close_time", "")
             parsed_markets = _parse_event_markets(markets, mode)
-            return {
+            initialized_events.append({
                 "event_ticker": et,
                 "title": ev.get("title", ""),
-                "status": markets[0].get("status", "initialized") if markets else "unknown",
-                "close_time_str": "",
+                "status": status,
+                "close_time_str": close_time_str,
                 "markets": parsed_markets,
-            }
+            })
+
+    if initialized_events:
+        initialized_events.sort(key=lambda e: e.get("close_time_str", "z"))
+        return initialized_events[0]
 
     return None
 
@@ -661,7 +674,7 @@ def scan_hourly_events(host: str, asset: str) -> None:
 
         if not active_events:
             print(f"    No active events found.")
-            print(f"    Markets may be initialized (outside trading hours).")
+            print(f"    Markets may be initialized (not yet open for this time slot).")
             # Show the nearest initialized event
             event = find_active_hourly_event(host, asset, mode=mode)
             if event:
@@ -746,7 +759,7 @@ def run_trade(
         if event and event["status"] not in ("active", "open"):
             print(f"  No active hourly {asset} events found.")
             print(f"  Nearest: {event['event_ticker']} [{event['status']}]")
-            print(f"  Hourly events become active when the trading window opens.")
+            print(f"  This event is not yet open. It will activate closer to its time slot.")
             return
         elif not event:
             print(f"  No hourly {asset} events found.")
@@ -776,7 +789,7 @@ def run_trade(
         active_markets = [m for m in markets if m["status"] in ("active", "open")]
         if not active_markets:
             print(f"\n  Event is '{ev_status}' — no active markets to trade.")
-            print(f"  Hourly events become active when the trading window opens.")
+            print(f"  This event is not yet open. It will activate closer to its time slot.")
             return
 
     # Step 3: Find strikes near the money
@@ -839,7 +852,7 @@ def run_trade(
     entry_cents = refine_entry_price(host, ticker, side, raw_entry)
     entry_cents = max(1, min(99, entry_cents))
     if entry_cents != raw_entry:
-        print(f"  L2 refined: {raw_entry}c → {entry_cents}c")
+        print(f"  L2 refined: {raw_entry}c -> {entry_cents}c")
 
     # Contract count: auto-size or use override
     contracts = contracts_override

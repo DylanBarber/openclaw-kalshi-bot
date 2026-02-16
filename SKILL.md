@@ -213,7 +213,7 @@ python scripts/runner.py run-strategy crypto_sentinel --ticker BTC -- --stop 650
 **Supported assets:** BTC, ETH, SOL, XRP, DOGE, ADA, AVAX, MATIC, DOT, LINK
 
 **Limitations:**
-- 15-minute markets are only `active` during Kalshi trading hours
+- 15-minute markets show `initialized` until their time slot activates (Kalshi trades 24/7)
 - Direction detection is momentum-based (short price sample), not predictive
 - Exit orders are limit orders; fills not guaranteed on thin books
 - Price sources: Binance US (default, best rate limits), Coinbase, CoinGecko (~10-30 req/min)
@@ -280,7 +280,7 @@ python scripts/runner.py run-strategy crypto_hourly --ticker BTC -- --loop --int
 **Supported assets:** BTC, ETH, SOL, XRP, DOGE
 
 **Limitations:**
-- Hourly events may be `initialized` outside trading hours
+- Hourly events show `initialized` until their time slot activates (Kalshi trades 24/7)
 - Volatility model is a simplified log-normal estimate, not a full options pricer
 - L2 data is thinner on less popular assets (SOL, DOGE, XRP)
 - All four doctrine gates must pass — this is conservative by design

@@ -380,9 +380,10 @@ SERIES_15M = {
 def find_active_15m_market(host: str, asset: str) -> dict | None:
     """Find the NEAREST-expiry active 15-minute market for a crypto asset.
 
-    The API returns events in reverse chronological order (furthest-out first),
-    so we must collect ALL active markets and pick the one with the earliest
-    close_time — that's the one expiring soonest.
+    Uses the ``status=open`` filter on the /events endpoint so the API returns
+    only events that are currently tradeable.  Without this filter the API
+    returns events furthest-out first and the active near-term events are
+    invisible past the default pagination limit.
 
     Returns {"event_ticker", "market_ticker", "title", "status", "close_time",
              "yes_bid", "yes_ask", "volume"} or None.
@@ -393,14 +394,14 @@ def find_active_15m_market(host: str, asset: str) -> dict | None:
     if not series:
         return None
 
-    data = _fetch_json_raw(f"{host}/events?series_ticker={series}&limit=30")
+    # status=open returns ONLY active/tradeable events — fast and reliable
+    data = _fetch_json_raw(f"{host}/events?series_ticker={series}&status=open&limit=50")
     if not data:
         return None
 
     events = data.get("events", [])
 
     active_markets = []
-    best_initialized = None
 
     for ev in events:
         et = ev.get("event_ticker", "")
@@ -423,8 +424,31 @@ def find_active_15m_market(host: str, asset: str) -> dict | None:
                     "yes_ask": m.get("yes_ask", 0) or 0,
                     "volume": m.get("volume", 0) or 0,
                 })
-            elif status == "initialized" and best_initialized is None:
-                best_initialized = {
+
+    if active_markets:
+        # Sort by close_time ascending — nearest expiry first
+        active_markets.sort(key=lambda m: m.get("close_time", "z"))
+        return active_markets[0]
+
+    # No open events — fall back to nearest initialized event
+    data = _fetch_json_raw(f"{host}/events?series_ticker={series}&limit=10")
+    if not data:
+        return None
+
+    events = data.get("events", [])
+    best_initialized = None
+
+    for ev in events:
+        et = ev.get("event_ticker", "")
+        ev_data = _fetch_json_raw(f"{host}/events/{et}")
+        if not ev_data:
+            continue
+
+        markets = ev_data.get("markets", [])
+        for m in markets:
+            status = m.get("status", "")
+            if status == "initialized":
+                candidate = {
                     "event_ticker": et,
                     "market_ticker": m.get("ticker", ""),
                     "title": m.get("title", ""),
@@ -435,11 +459,8 @@ def find_active_15m_market(host: str, asset: str) -> dict | None:
                     "yes_ask": m.get("yes_ask", 0) or 0,
                     "volume": m.get("volume", 0) or 0,
                 }
-
-    if active_markets:
-        # Sort by close_time ascending — nearest expiry first
-        active_markets.sort(key=lambda m: m.get("close_time", "z"))
-        return active_markets[0]
+                if best_initialized is None or m.get("close_time", "z") < best_initialized.get("close_time", "z"):
+                    best_initialized = candidate
 
     return best_initialized
 
@@ -510,7 +531,7 @@ def run_15min_mode(asset: str, host: str, cfg: dict, opts, dry_run: bool = False
     market = find_active_15m_market(host, asset)
     if not market:
         print(f"  No 15-minute {asset} markets found on Kalshi.")
-        print(f"  These markets may only be active during trading hours.")
+        print(f"  These markets may not yet be open for this time slot.")
         print(f"  Use 'runner.py series {SERIES_15M.get(asset.upper(), '?')} --events' to check.")
         return
 
@@ -528,7 +549,7 @@ def run_15min_mode(asset: str, host: str, cfg: dict, opts, dry_run: bool = False
     if status == "initialized":
         print(f"\n  Market is initialized (not yet active).")
         print(f"  Waiting for it to open... (Ctrl-C to stop)")
-        print(f"  15-minute markets open throughout trading hours.")
+        print(f"  15-minute markets activate closer to their time slot.")
 
     # Determine trading direction based on momentum
     print(f"\n  Collecting price samples to determine direction...")
@@ -597,7 +618,7 @@ def run_15min_mode(asset: str, host: str, cfg: dict, opts, dry_run: bool = False
 
     if status != "active":
         print(f"\n  Market is not active ({status}). Cannot place order.")
-        print(f"  Check back during trading hours.")
+        print(f"  Market is not yet open for this time slot.")
         return
 
     if dry_run:

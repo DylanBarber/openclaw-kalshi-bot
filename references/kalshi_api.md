@@ -114,7 +114,7 @@ The `/series` endpoint provides access to 212+ crypto series and other repeating
 - Each 15-minute event contains ONE binary market: "BTC price up in next 15 mins?" (YES/NO)
 - Markets cycle through statuses: `initialized` -> `active` (tradeable) -> `closed` -> `settled`
 - Only `active` markets have orderbook data and accept orders
-- Markets are only active during Kalshi trading hours
+- Markets show `initialized` until their time slot activates (Kalshi crypto trades 24/7)
 
 ### Hourly market notes
 
@@ -134,7 +134,7 @@ Hourly crypto markets come in two types:
 - Settlement source: CF Benchmarks
 
 Both types:
-- Events become `active` during Kalshi trading hours, `initialized` outside
+- Events show `initialized` until their time slot activates, then become `active` (Kalshi trades 24/7)
 - Multiple events may be live at once (e.g., 1 hour, 5 hours, and 24 hours out)
 - The further-out event typically has the most volume/liquidity
 

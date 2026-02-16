@@ -118,7 +118,7 @@ cd {baseDir} && .venv/bin/python scripts/runner.py series KXBTCD     # BTC above
 
 **Ticker format:** `KXBTC15M-{YYMONDDHHMI}-{MI}` (e.g., `KXBTC15M-26FEB170000-00` for Feb 17 at midnight)
 
-**Important:** 15-minute markets are only `active` during trading hours. Outside trading hours they show `initialized` status with empty orderbooks.
+**Important:** 15-minute markets show `initialized` status with empty orderbooks until their time slot activates. Kalshi crypto markets trade 24/7.
 
 ### Evaluating a Trade (dry run)
 
@@ -240,7 +240,7 @@ cd {baseDir} && .venv/bin/python scripts/runner.py run-strategy crypto_sentinel 
 **Supported assets:** BTC, ETH, SOL, XRP, DOGE, ADA, AVAX, MATIC, DOT, LINK
 
 **Important limitations:**
-- 15-minute markets are only `active` during Kalshi trading hours — outside hours they show `initialized` with empty books
+- 15-minute markets show `initialized` with empty books until their time slot activates (Kalshi trades 24/7)
 - The strategy samples prices over a short window to determine direction — this is momentum-based, not predictive
 - Exit orders may not fill on thin books; the strategy places limit orders
 - Binance.com is geo-blocked in the US (HTTP 451); the strategy uses Binance US instead
@@ -291,7 +291,7 @@ cd {baseDir} && .venv/bin/python scripts/runner.py run-strategy crypto_hourly --
 **Directional series (best liquidity):** KXBTCD (BTC), KXETHD (ETH), KXSOLD (SOL), KXXRPD (XRP)
 
 **Important limitations:**
-- Hourly events may be `initialized` outside trading hours
+- Hourly events show `initialized` until their time slot activates (Kalshi trades 24/7)
 - The volatility model is a simplified log-normal estimate, not a full options pricer — edge estimates are approximate
 - All four doctrine gates must pass — this is conservative by design
 - L2 data is thinner on less popular assets (SOL, XRP, DOGE)

@@ -838,16 +838,34 @@ def cmd_series(_client, args):
             print(f"  Series '{series_ticker}' not found.")
             return
 
-        # Fetch events for this series
+        # Fetch events for this series — show active (open) events first,
+        # then remaining events up to the limit.
         limit = getattr(args, "limit", 20)
-        ev_data = _fetch_json_raw(f"{host}/events?series_ticker={series_ticker}&limit={limit}")
-        if ev_data and ev_data.get("events"):
-            events = ev_data["events"]
-            print(f"\n  Events ({len(events)}):")
-            for ev in events:
+
+        # First: get ONLY open/active events (the ones you can actually trade)
+        open_data = _fetch_json_raw(f"{host}/events?series_ticker={series_ticker}&status=open&limit={limit}")
+        open_events = (open_data.get("events", []) if open_data else [])
+        open_tickers = {ev.get("event_ticker") for ev in open_events}
+
+        # Second: get all events (includes initialized, settled, etc.)
+        all_data = _fetch_json_raw(f"{host}/events?series_ticker={series_ticker}&limit={limit}")
+        all_events = (all_data.get("events", []) if all_data else [])
+
+        # Merge: open events first (sorted by nearest expiry), then the rest
+        other_events = [ev for ev in all_events if ev.get("event_ticker") not in open_tickers]
+        ordered_events = open_events + other_events
+
+        if ordered_events:
+            n_open = len(open_events)
+            print(f"\n  Events ({len(ordered_events)} total, {n_open} open/active):")
+            if n_open > 0:
+                print(f"  --- ACTIVE (tradeable) ---")
+            for i, ev in enumerate(ordered_events):
                 et = ev.get("event_ticker", "")
                 title = ev.get("title", "")[:55]
                 status = ev.get("status", "")
+                if i == n_open and n_open > 0:
+                    print(f"  --- OTHER (initialized / settled) ---")
                 print(f"    {et:<45s} [{status or '?'}]  {title}")
 
                 # If --events flag, also show markets within each event
