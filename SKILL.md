@@ -55,15 +55,41 @@ ui/
 
 All via `python {baseDir}/scripts/runner.py <command>` (run from the skill directory or use the full path).
 
-### Market Data
+### Market Discovery (events-based)
+
+The `/markets` listing only returns esports combos. Real markets (~2,900+ active across Politics, Economics, Sports, Financials, etc.) are discovered through the **events** endpoint. The `events` and `markets search` commands use raw HTTP — no SDK auth required.
 
 ```bash
-cd {baseDir} && .venv/bin/python scripts/runner.py markets search "bitcoin"
-cd {baseDir} && .venv/bin/python scripts/runner.py markets get KXBTC-26FEB14-T50050
-cd {baseDir} && .venv/bin/python scripts/runner.py orderbook KXBTC-26FEB14-T50050 --depth 5
+# Browse all event categories
+cd {baseDir} && .venv/bin/python scripts/runner.py events
+
+# Search events by text
+cd {baseDir} && .venv/bin/python scripts/runner.py events "fed"
+
+# Filter by category
+cd {baseDir} && .venv/bin/python scripts/runner.py events --category Economics
+
+# Search markets across all events
+cd {baseDir} && .venv/bin/python scripts/runner.py markets search "deel ipo"
+
+# Search within a category
+cd {baseDir} && .venv/bin/python scripts/runner.py markets search "trump" --category Politics
+
+# List all markets in a specific event
+cd {baseDir} && .venv/bin/python scripts/runner.py markets search --event KXDEELRIP-40
+
+# Get full detail on a specific market
+cd {baseDir} && .venv/bin/python scripts/runner.py markets get KXDEELRIP-40-DEEL
+
+# Inspect the orderbook (L2 depth)
+cd {baseDir} && .venv/bin/python scripts/runner.py orderbook KXDEELRIP-40-DEEL --depth 10
 ```
 
-Note: valid `--status` query filter values are `unopened`, `open`, `paused`, `closed`, `settled`. Do NOT use response-level statuses like `active` or `determined` as filter values. Omit `--status` to return all markets.
+**Available categories:** Politics, Economics, Elections, Sports, Entertainment, Financials, Companies, Social, Climate and Weather, World, Science and Technology, Health, Transportation.
+
+**Note:** Daily crypto/index series (KXBTC-*, KXINX-*, KXNASDAQ100-*) are not available on the current API host (404). Use event-based markets instead.
+
+Valid `--status` query filter values: `unopened`, `open`, `paused`, `closed`, `settled`. Do NOT use response-level statuses like `active` or `determined` as filter values. Omit `--status` to return all markets.
 
 ### Trading
 
@@ -159,6 +185,8 @@ For SDK method signatures and response models, see [references/kalshi_api.md](re
 - **Missing dependency**: The SDK imports `cryptography` at module level but doesn't declare it as a dependency. Install it explicitly: `pip install cryptography`.
 - **Orderbook alias bug**: The SDK's Pydantic model expects JSON keys `"true"`/`"false"` but the API returns `"yes"`/`"no"`. All orderbook fetches in this skill use raw HTTP to bypass this. See `fetch_orderbook_raw()` in `runner.py`.
 - **Status filter values**: Query filters accept `unopened`, `open`, `paused`, `closed`, `settled`. Do NOT use response-level values like `active`.
+- **Broken `/markets` listing**: The `get_markets()` call / `/markets` endpoint only returns multivariate esports combo markets. All real tradeable markets are only discoverable via the `/events` endpoint. Use `runner.py events` and `runner.py markets search` (events-based discovery) instead.
+- **Daily series unavailable**: KXBTC-*, KXINX-*, KXNASDAQ100-*, daily weather/temp tickers all return 404. These short-duration series markets are not on the `api.elections.kalshi.com` host.
 
 ## Key Concepts
 

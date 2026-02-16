@@ -50,23 +50,36 @@ On Windows, replace `.venv/bin/python` with `.venv\Scripts\python`.
 
 ### Reconnaissance (always do this first)
 
+**CRITICAL: Market Discovery via Events**
+
+The `/markets` listing endpoint only returns multivariate esports combo markets.  All real tradeable markets (Politics, Economics, Financials, Sports, etc.) are only discoverable through the **events** endpoint.  The `events` and `markets search` commands handle this automatically using raw HTTP — they do NOT need SDK credentials.
+
 ```bash
 # Check account status
 cd {baseDir} && .venv/bin/python scripts/runner.py balance
 
-# Search for markets (no status filter by default — returns all active markets)
-cd {baseDir} && .venv/bin/python scripts/runner.py markets search "bitcoin"
+# Browse event categories (see what's available)
+cd {baseDir} && .venv/bin/python scripts/runner.py events
 
-# Filter by status (valid query values: unopened, open, paused, closed, settled)
-cd {baseDir} && .venv/bin/python scripts/runner.py markets search "bitcoin" --status open
+# Search events by text
+cd {baseDir} && .venv/bin/python scripts/runner.py events "bitcoin"
 
-# Search by event ticker
-cd {baseDir} && .venv/bin/python scripts/runner.py markets search KXBTC --event
+# Filter events by category
+cd {baseDir} && .venv/bin/python scripts/runner.py events --category Politics
+
+# Search markets across all events (events-based discovery, no SDK needed)
+cd {baseDir} && .venv/bin/python scripts/runner.py markets search "fed"
+
+# Search markets within a category
+cd {baseDir} && .venv/bin/python scripts/runner.py markets search "fed" --category Economics
+
+# List all markets in a specific event
+cd {baseDir} && .venv/bin/python scripts/runner.py markets search --event KXDEELRIP-40
 
 # Get full detail on a specific market
 cd {baseDir} && .venv/bin/python scripts/runner.py markets get <TICKER>
 
-# Inspect the orderbook
+# Inspect the orderbook (L2 depth — works for all event-based markets)
 cd {baseDir} && .venv/bin/python scripts/runner.py orderbook <TICKER> --depth 10
 
 # Check current positions and open orders
@@ -74,7 +87,11 @@ cd {baseDir} && .venv/bin/python scripts/runner.py positions
 cd {baseDir} && .venv/bin/python scripts/runner.py orders
 ```
 
+**Available categories:** Politics, Economics, Elections, Sports, Entertainment, Financials, Companies, Social, Climate and Weather, World, Science and Technology, Health, Transportation.
+
 **Important status filter values:** The valid `--status` query filter values are `unopened`, `open`, `paused`, `closed`, `settled`. Do NOT pass response-level statuses like `active` or `determined` — those are different. Omit `--status` entirely to get all markets.
+
+**Note on daily series markets:** Daily crypto brackets (KXBTC-*), index contracts (KXINX-*, KXNASDAQ100-*), and daily weather/temp markets return 404 on the current API host. These short-duration "series" markets are not available. Focus on event-based markets which have full L2 depth.
 
 ### Evaluating a Trade (dry run)
 
@@ -166,15 +183,26 @@ When the user asks you to find a trade or evaluate an opportunity, follow this s
 | Running `.venv/bin/python` without `cd {baseDir}` first | Always prefix with `cd {baseDir} &&` |
 | Assuming an order filled without checking | Run `runner.py orders` or `runner.py fills` to confirm |
 | Empty orderbook data | Check the market is `open`/`active`, the ticker is valid, and the market isn't a multi-event summary. Some markets genuinely have thin/no books. |
+| Using `get_markets()` or `/markets` listing to discover markets | This only returns esports combo tickers. Use `runner.py events` or `runner.py markets search` (events-based discovery) instead. |
+| Searching for KXBTC, KXINX, KXNASDAQ100 daily series tickers | These return 404 — daily series markets are not on this API host. Use event-based markets instead. |
 
-### API Host
+### API Host & Market Discovery
 
-The default host is `https://api.elections.kalshi.com/trade-api/v2` (production — covers ALL markets, not just elections). Override via `host` in config.yaml or `KALSHI_HOST` env var. For sandbox testing use `https://demo-api.kalshi.co/trade-api/v2`.
+The default host is `https://api.elections.kalshi.com/trade-api/v2` (production). Override via `host` in config.yaml or `KALSHI_HOST` env var. For sandbox testing use `https://demo-api.kalshi.co/trade-api/v2`.
+
+**CRITICAL: The `/markets` listing is broken for discovery.** It only returns multivariate esports combo markets (`KXMVESPORTSMULTIGAMEEXTENDED-*`). To find real tradeable markets:
+
+1. Use `runner.py events` to browse by category
+2. Use `runner.py markets search <query>` which uses events-based discovery internally
+3. Use `runner.py markets search --event <EVENT_TICKER>` to list markets within an event
+
+There are ~2,900+ active markets across categories (Politics, Economics, Sports, etc.) all with full L2 orderbook depth. Daily crypto/index series (KXBTC-*, KXINX-*) are NOT available on this host.
 
 If the orderbook comes back empty for a valid open market, the issue is likely:
 1. The market is a multivariate event (combo) — these don't have standalone orderbooks
 2. The market genuinely has no resting orders
 3. The market is not in `open` status — check with `runner.py markets get <TICKER>`
+4. The ticker is a daily series market (KXBTC, KXINX, etc.) — not available on current host
 
 ## What the Four Gates Mean (Plain English)
 

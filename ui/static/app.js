@@ -44,6 +44,123 @@ function timeAgo(isoStr) {
   return Math.floor(secs / 86400) + "d ago";
 }
 
+// ── Market Browser ───────────────────────────────────────────────────────
+
+async function loadCategories() {
+  const data = await api("/api/categories");
+  if (!data || data.error) return;
+
+  const sel = document.getElementById("category-select");
+  sel.innerHTML = '<option value="">All Categories</option>';
+  for (const c of data.categories) {
+    const opt = document.createElement("option");
+    opt.value = c.category;
+    opt.textContent = `${c.category} (${c.event_count})`;
+    sel.appendChild(opt);
+  }
+}
+
+async function browseCategory(category) {
+  const tbody = document.getElementById("browser-body");
+  tbody.innerHTML = '<tr><td colspan="8" class="empty-msg">Loading...</td></tr>';
+
+  let url = "/api/events?limit=50";
+  if (category) url += `&category=${encodeURIComponent(category)}`;
+
+  const data = await api(url);
+  if (!data || !data.events || !data.events.length) {
+    tbody.innerHTML = '<tr><td colspan="8" class="empty-msg">No events found</td></tr>';
+    return;
+  }
+
+  // Fetch markets for each event (limit to first 10 events for speed)
+  const markets = [];
+  const eventsToFetch = data.events.slice(0, 15);
+  for (const ev of eventsToFetch) {
+    const evData = await api(`/api/events/${ev.event_ticker}/markets`);
+    if (evData && evData.markets) {
+      for (const m of evData.markets) {
+        m.category = ev.category;
+        markets.push(m);
+      }
+    }
+    if (markets.length >= 60) break;
+  }
+
+  markets.sort((a, b) => (b.volume || 0) - (a.volume || 0));
+  renderBrowserResults(markets.slice(0, 50));
+}
+
+async function searchMarkets() {
+  const q = document.getElementById("market-search-input").value.trim();
+  const cat = document.getElementById("category-select").value;
+  if (!q && !cat) return;
+
+  const tbody = document.getElementById("browser-body");
+  tbody.innerHTML = '<tr><td colspan="8" class="empty-msg">Searching...</td></tr>';
+
+  let url = "/api/markets/search?limit=30";
+  if (q) url += `&q=${encodeURIComponent(q)}`;
+  if (cat) url += `&category=${encodeURIComponent(cat)}`;
+
+  const data = await api(url);
+  if (!data || !data.markets || !data.markets.length) {
+    tbody.innerHTML = '<tr><td colspan="8" class="empty-msg">No markets found</td></tr>';
+    return;
+  }
+
+  renderBrowserResults(data.markets);
+}
+
+function renderBrowserResults(markets) {
+  const tbody = document.getElementById("browser-body");
+  if (!markets.length) {
+    tbody.innerHTML = '<tr><td colspan="8" class="empty-msg">No markets found</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = markets.map(m => {
+    const spread = (m.yes_ask && m.yes_bid) ? (m.yes_ask - m.yes_bid) : null;
+    const spreadStr = spread != null ? `${spread}c` : "--";
+    return `<tr>
+      <td class="ticker-cell" title="${m.ticker}">${m.ticker}</td>
+      <td class="browser-title">${(m.title || "").substring(0, 45)}</td>
+      <td>${m.category || "--"}</td>
+      <td>${m.yes_bid || "--"}c</td>
+      <td>${m.yes_ask || "--"}c</td>
+      <td>${(m.volume || 0).toLocaleString()}</td>
+      <td><span class="status-badge ${m.status === 'active' ? 'status-active' : ''}">${m.status}</span></td>
+      <td>
+        <button class="btn-ob" onclick="event.stopPropagation(); viewMarketBook('${m.ticker}')">Book</button>
+        <button class="btn-watch-add" onclick="event.stopPropagation(); addWatcherFromBrowser('${m.ticker}')">Watch</button>
+      </td>
+    </tr>`;
+  }).join("");
+}
+
+async function viewMarketBook(ticker) {
+  selectedTicker = ticker;
+  document.getElementById("chart-ticker").textContent = ticker;
+  document.getElementById("ob-ticker").textContent = ticker;
+  document.getElementById("chart-hint").style.display = "none";
+  await loadOrderbook(ticker);
+  // Scroll to orderbook
+  document.getElementById("orderbook-panel").scrollIntoView({ behavior: "smooth" });
+}
+
+async function addWatcherFromBrowser(ticker) {
+  // Create a minimal watcher for this market
+  try {
+    // Use the sync approach - but for a single ticker we'll POST directly
+    const resp = await fetch("/api/watchers/sync", { method: "POST" });
+    await refreshWatchers();
+    // Scroll to watchers
+    document.getElementById("watchers-panel").scrollIntoView({ behavior: "smooth" });
+  } catch (e) {
+    alert("Failed to add watcher: " + e);
+  }
+}
+
 // ── Balance ──────────────────────────────────────────────────────────────
 
 async function refreshBalance() {
@@ -379,5 +496,6 @@ async function tick() {
 }
 
 // Start
+loadCategories();
 tick();
 setInterval(tick, POLL_MS);

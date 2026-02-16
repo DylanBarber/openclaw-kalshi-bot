@@ -442,6 +442,199 @@ def api_sync_watchers():
         return jsonify({"error": str(e)}), 500
 
 
+# ── Events-based market discovery ─────────────────────────────────────
+
+@app.route("/api/events")
+def api_events():
+    """List events (primary market discovery), optionally filtered by category or query."""
+    config = _load_project_config()
+    host = _get_host(config)
+    query = (request.args.get("q", "") or "").lower()
+    category = (request.args.get("category", "") or "").lower()
+    limit = request.args.get("limit", 200, type=int)
+
+    all_events = []
+    cursor = None
+
+    for _ in range(20):
+        url = f"{host}/events?limit=100"
+        if cursor:
+            url += f"&cursor={cursor}"
+        data = _fetch_json(url)
+        if data is None:
+            break
+        events = data.get("events", [])
+        if not events:
+            break
+        cursor = data.get("cursor")
+
+        for ev in events:
+            et = ev.get("event_ticker", "")
+            title = ev.get("title", "")
+            cat = ev.get("category", "")
+
+            if category and category not in cat.lower():
+                continue
+            if query and query not in et.lower() and query not in title.lower():
+                continue
+
+            all_events.append({
+                "event_ticker": et,
+                "title": title,
+                "category": cat,
+                "sub_title": ev.get("sub_title", ""),
+                "series_ticker": ev.get("series_ticker", ""),
+                "mutually_exclusive": ev.get("mutually_exclusive", False),
+            })
+
+            if len(all_events) >= limit:
+                break
+
+        if len(all_events) >= limit or not cursor:
+            break
+
+    return jsonify({"events": all_events, "total": len(all_events)})
+
+
+@app.route("/api/events/<event_ticker>/markets")
+def api_event_markets(event_ticker):
+    """Get all markets for a specific event."""
+    config = _load_project_config()
+    host = _get_host(config)
+
+    data = _fetch_json(f"{host}/events/{event_ticker}")
+    if data is None:
+        return jsonify({"error": f"Event not found: {event_ticker}"}), 404
+
+    event = data.get("event", {})
+    raw_markets = data.get("markets", [])
+
+    markets = []
+    for m in raw_markets:
+        markets.append({
+            "ticker": m.get("ticker", "?"),
+            "title": m.get("title", ""),
+            "status": m.get("status", ""),
+            "yes_bid": m.get("yes_bid", 0) or 0,
+            "yes_ask": m.get("yes_ask", 0) or 0,
+            "no_bid": m.get("no_bid", 0) or 0,
+            "no_ask": m.get("no_ask", 0) or 0,
+            "volume": m.get("volume", 0) or 0,
+            "open_interest": m.get("open_interest", 0) or 0,
+            "liquidity": m.get("liquidity", 0) or 0,
+            "last_price": m.get("last_price", 0) or 0,
+        })
+
+    return jsonify({
+        "event": {
+            "event_ticker": event.get("event_ticker", event_ticker),
+            "title": event.get("title", ""),
+            "category": event.get("category", ""),
+        },
+        "markets": markets,
+    })
+
+
+@app.route("/api/markets/search")
+def api_markets_search():
+    """Search across all events' markets by text query.
+
+    The /markets listing only returns esports combos. This endpoint
+    iterates events → markets and filters by text query.
+    """
+    config = _load_project_config()
+    host = _get_host(config)
+    query = (request.args.get("q", "") or "").lower()
+    category = (request.args.get("category", "") or "").lower()
+    limit = request.args.get("limit", 30, type=int)
+
+    if not query and not category:
+        return jsonify({"error": "Provide ?q=<query> or ?category=<name>"}), 400
+
+    results = []
+    cursor = None
+
+    for _ in range(20):
+        url = f"{host}/events?limit=100"
+        if cursor:
+            url += f"&cursor={cursor}"
+        data = _fetch_json(url)
+        if data is None:
+            break
+        events = data.get("events", [])
+        if not events:
+            break
+        cursor = data.get("cursor")
+
+        for ev in events:
+            et = ev.get("event_ticker", "")
+            ev_title = ev.get("title", "")
+            ev_cat = ev.get("category", "")
+
+            if category and category not in ev_cat.lower():
+                continue
+
+            ev_data = _fetch_json(f"{host}/events/{et}")
+            if ev_data is None:
+                continue
+            for m in ev_data.get("markets", []):
+                m_ticker = m.get("ticker", "").lower()
+                m_title = m.get("title", "").lower()
+                if query and (query not in m_ticker and query not in m_title
+                              and query not in et.lower() and query not in ev_title.lower()):
+                    continue
+                results.append({
+                    "ticker": m.get("ticker", "?"),
+                    "title": m.get("title", ""),
+                    "event_ticker": et,
+                    "category": ev_cat,
+                    "status": m.get("status", ""),
+                    "yes_bid": m.get("yes_bid", 0) or 0,
+                    "yes_ask": m.get("yes_ask", 0) or 0,
+                    "volume": m.get("volume", 0) or 0,
+                    "last_price": m.get("last_price", 0) or 0,
+                })
+                if len(results) >= limit:
+                    break
+            if len(results) >= limit:
+                break
+        if len(results) >= limit or not cursor:
+            break
+
+    results.sort(key=lambda m: -(m.get("volume", 0) or 0))
+    return jsonify({"markets": results, "total": len(results)})
+
+
+@app.route("/api/categories")
+def api_categories():
+    """List all available event categories with counts."""
+    config = _load_project_config()
+    host = _get_host(config)
+
+    from collections import Counter
+    cats = Counter()
+    cursor = None
+
+    for _ in range(20):
+        url = f"{host}/events?limit=100"
+        if cursor:
+            url += f"&cursor={cursor}"
+        data = _fetch_json(url)
+        if data is None:
+            break
+        events = data.get("events", [])
+        if not events:
+            break
+        cursor = data.get("cursor")
+        for ev in events:
+            cats[ev.get("category", "Unknown")] += 1
+        if not cursor:
+            break
+
+    result = [{"category": cat, "event_count": count} for cat, count in cats.most_common(30)]
+    return jsonify({"categories": result})
+
+
 @app.route("/api/orderbook/<ticker>")
 def api_orderbook(ticker):
     config = _load_project_config()

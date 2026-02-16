@@ -6,10 +6,12 @@ Quick reference for the `kalshi-python` package (v2.1+). Full docs: https://docs
 
 | Host | Use |
 |---|---|
-| `https://api.elections.kalshi.com/trade-api/v2` | **Production** — all markets (not just elections despite the name) |
+| `https://api.elections.kalshi.com/trade-api/v2` | **Production** — event-based markets |
 | `https://demo-api.kalshi.co/trade-api/v2` | Demo/sandbox |
 
 **Default:** `api.elections.kalshi.com` (override via `host` in config.yaml or `KALSHI_HOST` env var)
+
+**IMPORTANT:** `api.kalshi.com` does not resolve. `trading-api.kalshi.com` redirects to elections. The elections host is the only working production host.
 
 ## Client Setup
 
@@ -24,16 +26,49 @@ config.api_key_id = "your-api-key-id"
 client = KalshiClient(config)
 ```
 
+## Events API (Primary Market Discovery)
+
+**WARNING: The `/markets` listing is BROKEN for market discovery.** It only returns multivariate esports combo markets (`KXMVESPORTSMULTIGAMEEXTENDED-*`). You MUST use the events endpoint to find real tradeable markets.
+
+| Endpoint | Auth | Description |
+|---|---|---|
+| `GET /events?limit=100&cursor=` | No | Paginate all events |
+| `GET /events/{event_ticker}` | No | Single event + nested markets array |
+
+### Correct market discovery flow
+
+```
+1. GET /events?limit=100  → list of events with category, title, event_ticker
+2. GET /events/{event_ticker}  → { "event": {...}, "markets": [...] }
+3. Use market tickers from step 2 for orderbook/trading
+```
+
+This gives access to ~2,900+ active markets across categories:
+- **Politics** (831), **Entertainment** (524), **Sports** (485), **Economics** (463)
+- **Elections** (443), **Social** (55), **Companies** (27), **Climate & Weather** (23)
+- Plus: World, Science & Technology, Health, Transportation, Financials
+
+### Markets NOT available on this host
+
+Daily series tickers return **404 Not Found**:
+- `KXBTC-*` (Bitcoin brackets), `KXETH-*` (Ethereum)
+- `KXINX-*` (S&P 500), `KXNASDAQ100-*` (Nasdaq)
+- Daily weather/temperature markets
+
+These short-duration series markets live on a different Kalshi API partition that is not currently accessible.
+
 ## Markets API
 
 | Method | Description |
 |---|---|
-| `client.get_markets(limit=, cursor=, event_ticker=, series_ticker=, status=, tickers=)` | List/search markets |
-| `client.get_market(ticker)` | Single market detail |
+| `client.get_markets(limit=, cursor=, event_ticker=, series_ticker=, status=, tickers=)` | List markets — **BROKEN: only returns esports combos** |
+| `client.get_market(ticker)` | Single market detail — **works for all tickers** |
 | `client.get_market_orderbook(ticker, depth=10)` | Orderbook bids — see note below |
 | `client.get_trades(limit=, cursor=, ticker=, min_ts=, max_ts=)` | Public trade history |
 
 ### get_markets filters
+
+**IMPORTANT:** `get_markets()` only returns multivariate esports combo markets when listing. For market discovery, use the Events API above instead.
 
 - `status` — **Query filter values** (what you send): `unopened`, `open`, `paused`, `closed`, `settled`
   - NOTE: These are DIFFERENT from **response status values** (what the market object returns): `initialized`, `inactive`, `active`, `closed`, `determined`, `disputed`, `amended`, `finalized`

@@ -37,6 +37,40 @@
   <!-- ── Main content ────────────────────────────────────────────────── -->
   <main>
 
+    <!-- Market Browser -->
+    <section class="panel" id="market-browser-panel">
+      <div class="panel-header">
+        <h2>Market Browser</h2>
+        <div class="browser-controls">
+          <select id="category-select" onchange="browseCategory(this.value)">
+            <option value="">All Categories</option>
+          </select>
+          <input type="text" id="market-search-input" placeholder="Search markets..."
+                 onkeydown="if(event.key==='Enter') searchMarkets()">
+          <button class="btn-search" onclick="searchMarkets()">Search</button>
+        </div>
+      </div>
+      <div class="table-wrap" id="browser-results" style="max-height:340px;overflow-y:auto;">
+        <table id="browser-table">
+          <thead>
+            <tr>
+              <th>Ticker</th>
+              <th>Title</th>
+              <th>Category</th>
+              <th>Bid</th>
+              <th>Ask</th>
+              <th>Volume</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="browser-body">
+            <tr><td colspan="8" class="empty-msg">Select a category or search to browse markets</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
     <!-- Active Watchers Table -->
     <section class="panel" id="watchers-panel">
       <div class="panel-header">

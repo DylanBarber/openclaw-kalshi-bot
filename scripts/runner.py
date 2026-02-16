@@ -3,7 +3,9 @@
 Kalshi Bot CLI – trade prediction markets from the command line.
 
 Usage:
-    python runner.py markets search <query> [--status active] [--limit 20]
+    python runner.py events [query] [--category Politics] [--limit 50]
+    python runner.py markets search <query> [--category Economics] [--limit 20]
+    python runner.py markets search --event KXDEELRIP-40
     python runner.py markets get <ticker>
     python runner.py orderbook <ticker> [--depth 10]
     python runner.py buy <ticker> <count> <price> [--side yes]
@@ -14,6 +16,10 @@ Usage:
     python runner.py balance
     python runner.py fills [--ticker TICKER] [--limit 20]
     python runner.py run-strategy <strategy_name> [--ticker TICKER] [-- ...]
+
+Market discovery uses the /events endpoint (not /markets, which only returns
+esports combo tickers).  The `events` and `markets search` commands use raw HTTP
+and do NOT require Kalshi SDK auth.
 
 Credentials are loaded from config.yaml (or KALSHI_API_KEY_ID / KALSHI_PRIVATE_KEY_PATH env vars).
 """
@@ -142,44 +148,198 @@ def _pp(obj: Any) -> None:
 # ---------------------------------------------------------------------------
 
 
-def cmd_markets_search(client, args):
-    """Search / list markets."""
-    kwargs: dict[str, Any] = {}
-    if args.query:
-        # The SDK's get_markets doesn't have a text search param directly;
-        # use series_ticker or event_ticker if provided, else filter client-side.
-        kwargs["series_ticker"] = args.query if args.series else None
-        kwargs["event_ticker"] = args.query if args.event else None
-        kwargs["tickers"] = args.query if args.tickers else None
-    if args.status:
-        kwargs["status"] = args.status
-    kwargs["limit"] = args.limit
+def cmd_markets_search(_client, args):
+    """Search / list markets via events-based discovery.
 
-    # Clean None values
-    kwargs = {k: v for k, v in kwargs.items() if v is not None}
+    The /markets listing on api.elections.kalshi.com only returns multivariate
+    esports combo markets.  Real markets (Politics, Economics, Sports, IPO races,
+    etc.) are only discoverable through the /events endpoint.  This command
+    paginates events → fetches markets per event → filters by text query.
+    """
+    cfg = load_config()
+    host = cfg.get("host", DEFAULT_HOST)
 
-    resp = client.get_markets(**kwargs)
-    markets = resp.markets or []
-
-    if not markets:
-        print("No markets found.")
+    # ── If --event flag, fetch a single event's markets directly ──
+    if args.event and args.query:
+        data = _fetch_json_raw(f"{host}/events/{args.query}")
+        if data is None or data.get("error"):
+            print(f"  Event not found: {args.query}")
+            return
+        markets = data.get("markets", [])
+        if not markets:
+            print(f"  Event {args.query} has no markets.")
+            return
+        _print_market_table(markets[:args.limit])
         return
 
-    # If we have a free-text query and didn't use a specific filter, filter locally
-    if args.query and not (args.series or args.event or args.tickers):
-        q = args.query.lower()
-        markets = [m for m in markets if q in (getattr(m, "title", "") or "").lower()
-                    or q in (getattr(m, "ticker", "") or "").lower()
-                    or q in (getattr(m, "subtitle", "") or "").lower()]
+    # ── Full events-based search ──
+    query = (args.query or "").lower()
+    category_filter = (args.category or "").lower() if hasattr(args, "category") else ""
 
+    all_markets: list[dict] = []
+    cursor = None
+    events_scanned = 0
+    max_event_pages = 20  # up to 2000 events
+
+    print(f"  Searching markets via events (query={args.query or '*'})...\n")
+
+    for _ in range(max_event_pages):
+        url = f"{host}/events?limit=100"
+        if cursor:
+            url += f"&cursor={cursor}"
+        data = _fetch_json_raw(url)
+        if data is None:
+            break
+        events = data.get("events", [])
+        if not events:
+            break
+        cursor = data.get("cursor")
+
+        for ev in events:
+            et = ev.get("event_ticker", "")
+            ev_title = ev.get("title", "")
+            ev_category = ev.get("category", "")
+            events_scanned += 1
+
+            # Category filter
+            if category_filter and category_filter not in ev_category.lower():
+                continue
+
+            # Quick pre-filter: if query doesn't match event title/ticker, skip
+            if query and query not in et.lower() and query not in ev_title.lower():
+                # Still need to check individual market titles, so fetch markets
+                pass
+
+            # Fetch markets for this event
+            ev_data = _fetch_json_raw(f"{host}/events/{et}")
+            if ev_data is None:
+                continue
+            markets = ev_data.get("markets", [])
+
+            for m in markets:
+                # Apply text filter across ticker + title
+                if query:
+                    m_ticker = m.get("ticker", "").lower()
+                    m_title = m.get("title", "").lower()
+                    m_subtitle = m.get("subtitle", "").lower()
+                    if (query not in m_ticker and query not in m_title
+                            and query not in m_subtitle and query not in et.lower()
+                            and query not in ev_title.lower()):
+                        continue
+
+                m["_category"] = ev_category
+                all_markets.append(m)
+
+            if len(all_markets) >= args.limit:
+                break
+
+        if len(all_markets) >= args.limit or not cursor:
+            break
+
+    if not all_markets:
+        print(f"  No markets found (scanned {events_scanned} events).")
+        return
+
+    # Sort by volume descending, take limit
+    all_markets.sort(key=lambda m: -(m.get("volume", 0) or 0))
+    all_markets = all_markets[:args.limit]
+
+    print(f"  Found {len(all_markets)} markets (scanned {events_scanned} events)\n")
+    _print_market_table(all_markets)
+
+
+def _print_market_table(markets: list[dict]) -> None:
+    """Pretty-print a list of market dicts."""
     for m in markets:
-        ticker = getattr(m, "ticker", "?")
-        title = getattr(m, "title", "")
-        status = getattr(m, "status", "")
-        yes_bid = getattr(m, "yes_bid", None)
-        yes_ask = getattr(m, "yes_ask", None)
-        volume = getattr(m, "volume", None)
-        print(f"  {ticker:<30s}  bid={yes_bid}  ask={yes_ask}  vol={volume}  [{status}]  {title}")
+        ticker = m.get("ticker", "?")
+        title = m.get("title", "")[:50]
+        status = m.get("status", "")
+        yes_bid = m.get("yes_bid", 0) or 0
+        yes_ask = m.get("yes_ask", 0) or 0
+        volume = m.get("volume", 0) or 0
+        category = m.get("_category", "")
+        cat_tag = f" [{category}]" if category else ""
+        print(f"  {ticker:<45s}  bid={yes_bid:>2d}  ask={yes_ask:>3d}  vol={volume:>8d}  [{status}]{cat_tag}  {title}")
+
+
+def _fetch_json_raw(url: str) -> dict | None:
+    """Fetch JSON from a URL via raw HTTP (no SDK). Returns None on failure."""
+    import urllib.request
+    import urllib.error
+    try:
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return json.loads(resp.read().decode())
+    except Exception:
+        return None
+
+
+def cmd_events(_client, args):
+    """List / search events (the correct way to discover markets)."""
+    cfg = load_config()
+    host = cfg.get("host", DEFAULT_HOST)
+    query = (args.query or "").lower()
+    category_filter = (args.category or "").lower() if hasattr(args, "category") else ""
+
+    all_events: list[dict] = []
+    cursor = None
+
+    for _ in range(20):
+        url = f"{host}/events?limit=100"
+        if cursor:
+            url += f"&cursor={cursor}"
+        data = _fetch_json_raw(url)
+        if data is None:
+            break
+        events = data.get("events", [])
+        if not events:
+            break
+        cursor = data.get("cursor")
+
+        for ev in events:
+            et = ev.get("event_ticker", "")
+            title = ev.get("title", "")
+            category = ev.get("category", "")
+
+            # Category filter
+            if category_filter and category_filter not in category.lower():
+                continue
+
+            # Text filter
+            if query and query not in et.lower() and query not in title.lower():
+                continue
+
+            all_events.append(ev)
+
+        if not cursor:
+            break
+
+    if not all_events:
+        print("  No events found.")
+        return
+
+    # Group by category for display
+    if not query and not category_filter:
+        from collections import Counter
+        cats = Counter(e.get("category", "?") for e in all_events)
+        print(f"  {len(all_events)} events across {len(cats)} categories:\n")
+        for cat, count in cats.most_common(20):
+            print(f"    {cat:<30s} {count:>4d} events")
+        print(f"\n  Use --category <name> to filter, or provide a search query.")
+        print(f"  Use 'markets search' to find individual markets within events.\n")
+        return
+
+    # Show matching events
+    all_events = all_events[:args.limit]
+    for ev in all_events:
+        et = ev.get("event_ticker", "")
+        title = ev.get("title", "")[:55]
+        category = ev.get("category", "")
+        sub = ev.get("sub_title", "")
+        print(f"  {et:<40s}  [{category}]  {title}")
+        if sub:
+            print(f"  {'':40s}  {sub}")
+    print(f"\n  {len(all_events)} event(s). Use 'markets search --event <EVENT_TICKER>' to see markets.")
 
 
 def cmd_markets_get(client, args):
@@ -550,17 +710,24 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", help="Path to config.yaml (auto-detected by default)")
     sub = parser.add_subparsers(dest="command", required=True)
 
+    # ── events (primary market discovery) ────────────────────────────────
+    events_p = sub.add_parser("events", help="List/search events (primary market discovery)")
+    events_p.add_argument("query", nargs="?", default=None, help="Search query (matches event ticker or title)")
+    events_p.add_argument("--category", default=None, help="Filter by category (e.g., Politics, Economics, Sports)")
+    events_p.add_argument("--limit", type=int, default=50, help="Max results (default: 50)")
+
     # ── markets ────────────────────────────────────────────────────────────
     markets_p = sub.add_parser("markets", help="Market data commands")
     markets_sub = markets_p.add_subparsers(dest="markets_cmd", required=True)
 
-    search_p = markets_sub.add_parser("search", help="Search / list markets")
+    search_p = markets_sub.add_parser("search", help="Search markets (via events-based discovery)")
     search_p.add_argument("query", nargs="?", default=None, help="Free-text search query")
+    search_p.add_argument("--category", default=None, help="Filter by category (e.g., Politics, Economics, Financials)")
     search_p.add_argument("--status", default=None, help="Market status filter: unopened, open, paused, closed, settled")
     search_p.add_argument("--limit", type=int, default=20, help="Max results (default: 20)")
-    search_p.add_argument("--series", action="store_true", help="Treat query as series_ticker")
-    search_p.add_argument("--event", action="store_true", help="Treat query as event_ticker")
-    search_p.add_argument("--tickers", action="store_true", help="Treat query as comma-separated tickers")
+    search_p.add_argument("--series", action="store_true", help="Treat query as series_ticker (SDK fallback)")
+    search_p.add_argument("--event", action="store_true", help="Treat query as event_ticker (fetches that event's markets)")
+    search_p.add_argument("--tickers", action="store_true", help="Treat query as comma-separated tickers (SDK fallback)")
 
     get_p = markets_sub.add_parser("get", help="Get a single market")
     get_p.add_argument("ticker", help="Market ticker")
@@ -633,6 +800,7 @@ def build_parser() -> argparse.ArgumentParser:
 # ---------------------------------------------------------------------------
 
 COMMAND_MAP = {
+    "events": cmd_events,
     "markets": {
         "search": cmd_markets_search,
         "get": cmd_markets_get,
@@ -649,6 +817,9 @@ COMMAND_MAP = {
     "watch": cmd_watch,
 }
 
+# Commands that don't need the SDK client (use raw HTTP)
+NO_CLIENT_COMMANDS = {"watch", "events"}
+
 
 def main():
     parser = build_parser()
@@ -662,11 +833,16 @@ def main():
         file_cfg.update({k: v for k, v in cfg.items() if v is not None})
         cfg = file_cfg
 
-    # Build client (watch command doesn't need SDK auth)
-    if args.command == "watch":
-        client = None
-    else:
+    # Build client — some commands use raw HTTP and don't need the SDK
+    needs_sdk = args.command not in NO_CLIENT_COMMANDS
+    # markets search also uses raw HTTP (events-based discovery)
+    if args.command == "markets" and getattr(args, "markets_cmd", None) == "search":
+        needs_sdk = False
+
+    if needs_sdk:
         client = build_client(cfg)
+    else:
+        client = None
 
     # Dispatch
     handler = COMMAND_MAP.get(args.command)

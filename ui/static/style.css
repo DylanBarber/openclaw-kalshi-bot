@@ -251,6 +251,99 @@ tbody tr.selected {
   color: var(--accent-cyan);
 }
 
+/* ── Market Browser ──────────────────────────────────────────────────────── */
+
+.browser-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.browser-controls select {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  min-width: 160px;
+}
+
+.browser-controls select:focus {
+  outline: none;
+  border-color: var(--accent-blue);
+}
+
+.browser-controls input[type="text"] {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  min-width: 200px;
+}
+
+.browser-controls input[type="text"]:focus {
+  outline: none;
+  border-color: var(--accent-blue);
+}
+
+.browser-controls input[type="text"]::placeholder {
+  color: var(--text-muted);
+}
+
+.btn-search {
+  background: rgba(68,138,255,0.15);
+  color: var(--accent-blue);
+  border: 1px solid rgba(68,138,255,0.3);
+  border-radius: 4px;
+  padding: 5px 14px;
+  font-size: 12px;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-weight: 600;
+  transition: all 0.15s ease;
+}
+
+.btn-search:hover {
+  background: rgba(68,138,255,0.3);
+  border-color: var(--accent-blue);
+}
+
+.btn-ob,
+.btn-watch-add {
+  background: rgba(0,229,255,0.1);
+  color: var(--accent-cyan);
+  border: 1px solid rgba(0,229,255,0.25);
+  border-radius: 3px;
+  padding: 2px 8px;
+  font-size: 10px;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  transition: all 0.15s ease;
+  margin-right: 4px;
+}
+
+.btn-ob:hover,
+.btn-watch-add:hover {
+  background: rgba(0,229,255,0.25);
+  border-color: var(--accent-cyan);
+}
+
+.browser-title {
+  color: var(--text-secondary);
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-sans);
+  font-size: 12px;
+}
+
 /* ── Buttons ─────────────────────────────────────────────────────────────── */
 
 .btn-remove {

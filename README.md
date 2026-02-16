@@ -14,14 +14,22 @@ kalshi-bot/
 |   |-- runner.py                      # CLI entry point - all user-facing commands
 |   |-- kalshi_math.py                 # Pure math: fees, P&L, break-even, sizing (no SDK dep)
 |   |-- trade_engine.py                # Trade evaluation, 4 acceptance gates, order tickets
+|   |-- watcher.py                     # Position price watcher daemon
 |   |-- config.example.yaml            # Template config - credentials + risk parameters
-|   |-- requirements.txt               # Python dependencies (kalshi-python, pyyaml)
+|   |-- requirements.txt               # Python dependencies
 |   +-- strategies/
-|       |-- fee_aware_mm.py            # Full doctrine strategy: gates, sizing, execution
+|       |-- fee_aware_mm.py            # Full doctrine strategy (auto-starts watcher on fill)
 |       +-- example_spread.py          # Lightweight spread watcher with evaluation
+|-- ui/
+|   |-- api_server.py                  # Flask REST API for the trading dashboard
+|   +-- static/
+|       |-- index.html                 # Dashboard page (market browser, watchers, positions)
+|       |-- app.js                     # Client-side logic + charts
+|       +-- style.css                  # Dark terminal theme
 |-- references/
-|   |-- kalshi_api.md                  # Kalshi Python SDK quick reference
+|   |-- kalshi_api.md                  # Kalshi API quick reference (events + markets)
 |   +-- trading_doctrine.md            # Complete formula & rules reference
+|-- testing/                           # Diagnostic scripts for API troubleshooting
 |-- .gitignore
 +-- README.md
 ```
@@ -30,7 +38,7 @@ kalshi-bot/
 
 | Module | Purpose |
 |---|---|
-| `runner.py` | Argparse CLI dispatching all commands (`markets`, `buy`, `sell`, `cancel`, `orderbook`, `balance`, `orders`, `positions`, `fills`, `run-strategy`) |
+| `runner.py` | Argparse CLI dispatching all commands (`events`, `markets`, `buy`, `sell`, `cancel`, `orderbook`, `balance`, `orders`, `positions`, `fills`, `watch`, `run-strategy`). Market search uses events-based discovery (raw HTTP, no SDK needed). |
 | `kalshi_math.py` | Stateless functions implementing every formula from the trading doctrine: fee calculation, gross/net P&L, slippage, capital at risk, break-even search, position sizing. Zero SDK dependency, fully unit-testable. |
 | `trade_engine.py` | Orchestrates a full trade evaluation: computes all metrics, runs the 4 acceptance gates (A-D), enforces portfolio risk limits, formats the canonical order ticket, and provides execution helpers (`place_limit_order`, `wait_for_fill`). |
 | `strategies/fee_aware_mm.py` | Production strategy: reads the orderbook, auto-sizes via doctrine, evaluates through all gates, prints the order ticket, and executes with TP/stop/time-stop exits. Supports `--dry-run`, `--loop`, side/contract/price overrides. |
@@ -81,11 +89,17 @@ cp scripts/config.example.yaml scripts/config.yaml
 # 4. Verify connection
 python scripts/runner.py balance
 
-# 5. Search markets
-python scripts/runner.py markets search "bitcoin"
+# 5. Browse market categories (no auth needed)
+python scripts/runner.py events
 
-# 6. Evaluate a trade (dry run - no real orders)
-python scripts/runner.py run-strategy fee_aware_mm --ticker KXBTC-26FEB14-T50050 -- --dry-run
+# 6. Search for markets
+python scripts/runner.py markets search "ipo"
+
+# 7. Evaluate a trade (dry run - no real orders)
+python scripts/runner.py run-strategy fee_aware_mm --ticker KXDEELRIP-40-DEEL -- --dry-run
+
+# 8. Start the trading dashboard
+python ui/api_server.py
 ```
 
 ## Configuration
