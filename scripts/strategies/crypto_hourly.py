@@ -202,24 +202,30 @@ def _norm_cdf(x: float) -> float:
 
 # ── Market discovery ─────────────────────────────────────────────────────
 
-def find_active_hourly_event(host: str, asset: str, mode: str = "directional") -> dict | None:
-    """Find the current/next active hourly event for a crypto asset.
+def find_active_hourly_events(host: str, asset: str, mode: str = "directional") -> list[dict]:
+    """Find ALL active hourly events for a crypto asset, sorted by nearest expiry.
 
-    Returns {event_ticker, title, status, markets: [{ticker, strike, status,
-    yes_bid, yes_ask, volume, close_time}]} or None.
+    The Kalshi API returns events in reverse chronological order (furthest-out
+    first), and there can be MULTIPLE active events at once (e.g., one expiring
+    in 2 hours and another in 5 days).  We collect all active events and sort
+    by close_time ascending so the nearest-expiry event comes first.
+
+    Returns list of {event_ticker, title, status, close_time_str, markets: [...]}.
     """
     from runner import _fetch_json_raw
 
     series_map = DIRECTIONAL_SERIES if mode == "directional" else RANGE_SERIES
     series = series_map.get(asset.upper())
     if not series:
-        return None
+        return []
 
-    data = _fetch_json_raw(f"{host}/events?series_ticker={series}&limit=10")
+    # Fetch more events to catch near-term ones buried deeper in the list
+    data = _fetch_json_raw(f"{host}/events?series_ticker={series}&limit=30")
     if not data:
-        return None
+        return []
 
     events = data.get("events", [])
+    active_events = []
 
     for ev in events:
         et = ev.get("event_ticker", "")
@@ -228,20 +234,51 @@ def find_active_hourly_event(host: str, asset: str, mode: str = "directional") -
             continue
 
         markets = ev_data.get("markets", [])
-        has_active = any(m.get("status") in ("active", "open") for m in markets)
+        active_markets = [m for m in markets if m.get("status") in ("active", "open")]
 
-        if has_active:
+        if active_markets:
             parsed_markets = _parse_event_markets(markets, mode)
-            return {
+            # Extract close_time from the first active market
+            close_time_str = active_markets[0].get("close_time", "")
+            active_events.append({
                 "event_ticker": et,
                 "title": ev.get("title", ""),
                 "status": "active",
+                "close_time_str": close_time_str,
                 "markets": parsed_markets,
-            }
+            })
 
-    # No active event — return the nearest initialized one
-    if events:
-        ev = events[0]
+    # Sort by close_time ascending — nearest expiry first
+    active_events.sort(key=lambda e: e.get("close_time_str", "z"))
+
+    return active_events
+
+
+def find_active_hourly_event(host: str, asset: str, mode: str = "directional") -> dict | None:
+    """Find the NEAREST-expiry active hourly event for a crypto asset.
+
+    Returns {event_ticker, title, status, markets: [{ticker, strike, status,
+    yes_bid, yes_ask, volume, close_time}]} or None.
+    """
+    from runner import _fetch_json_raw
+
+    active_events = find_active_hourly_events(host, asset, mode)
+
+    if active_events:
+        return active_events[0]  # Nearest expiry
+
+    # No active events — fall back to the nearest initialized one
+    series_map = DIRECTIONAL_SERIES if mode == "directional" else RANGE_SERIES
+    series = series_map.get(asset.upper())
+    if not series:
+        return None
+
+    data = _fetch_json_raw(f"{host}/events?series_ticker={series}&limit=5")
+    if not data:
+        return None
+
+    events = data.get("events", [])
+    for ev in events:
         et = ev.get("event_ticker", "")
         ev_data = _fetch_json_raw(f"{host}/events/{et}")
         if ev_data:
@@ -251,6 +288,7 @@ def find_active_hourly_event(host: str, asset: str, mode: str = "directional") -
                 "event_ticker": et,
                 "title": ev.get("title", ""),
                 "status": markets[0].get("status", "initialized") if markets else "unknown",
+                "close_time_str": "",
                 "markets": parsed_markets,
             }
 
@@ -604,7 +642,7 @@ def start_watcher(ticker: str, entry_cents: int, contracts: int, side: str) -> N
 # ── Scan mode ────────────────────────────────────────────────────────────
 
 def scan_hourly_events(host: str, asset: str) -> None:
-    """Scan and display available hourly events for an asset."""
+    """Scan and display ALL available hourly events for an asset."""
     print(f"\n  Scanning hourly crypto events for {asset}...")
     print(f"  {'=' * 70}")
 
@@ -617,37 +655,48 @@ def scan_hourly_events(host: str, asset: str) -> None:
             continue
 
         print(f"\n  {label}: {series}")
-        event = find_active_hourly_event(host, asset, mode=mode)
 
-        if not event:
-            print(f"    No events found.")
+        # Show ALL active events, sorted by nearest expiry
+        active_events = find_active_hourly_events(host, asset, mode=mode)
+
+        if not active_events:
+            print(f"    No active events found.")
+            print(f"    Markets may be initialized (outside trading hours).")
+            # Show the nearest initialized event
+            event = find_active_hourly_event(host, asset, mode=mode)
+            if event:
+                print(f"    Nearest: {event['event_ticker']} [{event['status']}]")
             continue
 
-        et = event["event_ticker"]
-        status = event["status"]
-        markets = event.get("markets", [])
-        active_count = sum(1 for m in markets if m["status"] in ("active", "open"))
+        print(f"    {len(active_events)} active event(s) (nearest expiry first):\n")
 
-        print(f"    Event:    {et}")
-        print(f"    Title:    {event['title']}")
-        print(f"    Status:   {status}")
-        print(f"    Markets:  {len(markets)} total, {active_count} active")
+        for i, event in enumerate(active_events):
+            et = event["event_ticker"]
+            markets = event.get("markets", [])
+            active_count = sum(1 for m in markets if m["status"] in ("active", "open"))
+            hours_left = _hours_until(event.get("close_time_str", ""))
+            volume = sum(m["volume"] for m in markets)
 
-        if markets:
+            marker = " <<<  NEAREST" if i == 0 else ""
+            print(f"    [{i+1}] {et}  ({hours_left:.1f}h to expiry)  "
+                  f"{active_count} strikes  vol={volume:,}{marker}")
+            print(f"        Title:  {event['title']}")
+
             # Show a few near the middle (likely ATM)
-            mid_idx = len(markets) // 2
-            start = max(0, mid_idx - 3)
-            end = min(len(markets), mid_idx + 4)
-            print(f"    Sample strikes (near middle):")
-            for m in markets[start:end]:
-                s = m["strike"]
-                strike_str = f"${s:,.2f}" if s else "?"
-                print(f"      {m['ticker']:<45s}  strike={strike_str:>12s}  "
-                      f"bid={m['yes_bid']:>2d} ask={m['yes_ask']:>3d}  "
-                      f"vol={m['volume']:>6d}  [{m['status']}]")
-
-            if len(markets) > 7:
-                print(f"      ... and {len(markets) - 7} more strikes")
+            if markets:
+                active_markets = [m for m in markets if m["status"] in ("active", "open") and m["strike"]]
+                if active_markets:
+                    mid_idx = len(active_markets) // 2
+                    start = max(0, mid_idx - 2)
+                    end = min(len(active_markets), mid_idx + 3)
+                    for m in active_markets[start:end]:
+                        s = m["strike"]
+                        strike_str = f"${s:,.2f}" if s else "?"
+                        print(f"        {m['ticker']:<45s}  strike={strike_str:>12s}  "
+                              f"bid={m['yes_bid']:>2d} ask={m['yes_ask']:>3d}  vol={m['volume']:>6d}")
+                    if len(active_markets) > 5:
+                        print(f"        ... and {len(active_markets) - 5} more strikes")
+            print()
 
 
 # ── Main trade flow ──────────────────────────────────────────────────────
@@ -687,19 +736,38 @@ def run_trade(
     change_24h = price_data.get("usd_24h_change", 0) or 0
     print(f"  {asset} spot: ${spot:,.2f}  (24h: {change_24h:+.2f}%)")
 
-    # Step 2: Find active hourly event
-    print(f"\n  [2/5] Finding active hourly event...")
-    event = find_active_hourly_event(host, asset, mode=mode)
-    if not event:
-        print(f"  No hourly {asset} events found.")
-        print(f"  Use 'runner.py series {series} --events' to check availability.")
-        return
+    # Step 2: Find active hourly events (nearest expiry first)
+    print(f"\n  [2/5] Finding active hourly events...")
+    all_active = find_active_hourly_events(host, asset, mode=mode)
 
+    if not all_active:
+        # Fall back to initialized event
+        event = find_active_hourly_event(host, asset, mode=mode)
+        if event and event["status"] not in ("active", "open"):
+            print(f"  No active hourly {asset} events found.")
+            print(f"  Nearest: {event['event_ticker']} [{event['status']}]")
+            print(f"  Hourly events become active when the trading window opens.")
+            return
+        elif not event:
+            print(f"  No hourly {asset} events found.")
+            print(f"  Use 'runner.py series {series} --events' to check availability.")
+            return
+
+    if len(all_active) > 1:
+        print(f"  Found {len(all_active)} active events (nearest expiry first):")
+        for i, ev in enumerate(all_active):
+            h = _hours_until(ev.get("close_time_str", ""))
+            vol = sum(m["volume"] for m in ev.get("markets", []))
+            marker = "  <<< SELECTED" if i == 0 else ""
+            print(f"    {ev['event_ticker']:<30s}  {h:>6.1f}h  vol={vol:>8,}{marker}")
+        print()
+
+    event = all_active[0]  # Nearest expiry
     et = event["event_ticker"]
     ev_status = event["status"]
     markets = event.get("markets", [])
 
-    print(f"  Event:   {et}")
+    print(f"  Event:   {et}  (nearest expiry)")
     print(f"  Title:   {event['title']}")
     print(f"  Status:  {ev_status}")
     print(f"  Markets: {len(markets)}")
