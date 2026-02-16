@@ -245,6 +245,57 @@ cd {baseDir} && .venv/bin/python scripts/runner.py run-strategy crypto_sentinel 
 - Exit orders may not fill on thin books; the strategy places limit orders
 - Binance.com is geo-blocked in the US (HTTP 451); the strategy uses Binance US instead
 
+### Crypto Hourly Trading
+
+The `crypto_hourly` strategy trades hourly crypto bracket markets using the full fee-aware doctrine. It targets **directional** markets (KXBTCD, KXETHD, KXSOLD, KXXRPD) which have 50-75 strike prices per event and meaningful volume/liquidity.
+
+**Use crypto_hourly when:**
+- The user wants to trade hourly crypto bracket markets
+- The user asks about "BTC above/below" or directional hourly markets
+- The user wants a fee-gated, edge-based approach to crypto trading (more sophisticated than the 15-min momentum strategy)
+
+**How it works:**
+1. Fetches external spot price from Binance US (with Coinbase/CoinGecko fallback)
+2. Finds the active hourly event and identifies strikes near the money (ATM)
+3. Uses a log-normal volatility model to estimate P(price > strike at expiry)
+4. Compares our estimated probability to the Kalshi market price — the difference is the "edge"
+5. Runs the full 4-gate doctrine (survivability, fee margin, move threshold, microstructure) before placing any order
+6. Executes only when edge exceeds the threshold AND all gates pass
+
+```bash
+# Scan available hourly events and market status
+cd {baseDir} && .venv/bin/python scripts/runner.py run-strategy crypto_hourly --ticker BTC -- --scan
+
+# Dry-run full evaluation (always do this first)
+cd {baseDir} && .venv/bin/python scripts/runner.py run-strategy crypto_hourly --ticker BTC -- --dry-run
+
+# Lower edge threshold for more opportunities
+cd {baseDir} && .venv/bin/python scripts/runner.py run-strategy crypto_hourly --ticker BTC -- --edge-threshold 3 --dry-run
+
+# Live trade ETH with custom contract count
+cd {baseDir} && .venv/bin/python scripts/runner.py run-strategy crypto_hourly --ticker ETH -- --contracts 30
+
+# Range mode (bracket markets instead of directional)
+cd {baseDir} && .venv/bin/python scripts/runner.py run-strategy crypto_hourly --ticker BTC -- --mode range --dry-run
+
+# Continuous: auto-trade each new hourly event
+cd {baseDir} && .venv/bin/python scripts/runner.py run-strategy crypto_hourly --ticker BTC -- --loop --interval 60
+```
+
+**Key options:**
+- `--edge-threshold 5.0` — minimum edge % to trade (default: 5%). Lower = more trades, more risk.
+- `--vol-override 1.2` — override the hourly volatility estimate (default varies by asset)
+- `--max-strikes 5` — how many near-ATM strikes to evaluate
+- `--mode directional` (default) or `--mode range` for bracket markets
+
+**Directional series (best liquidity):** KXBTCD (BTC), KXETHD (ETH), KXSOLD (SOL), KXXRPD (XRP)
+
+**Important limitations:**
+- Hourly events may be `initialized` outside trading hours
+- The volatility model is a simplified log-normal estimate, not a full options pricer — edge estimates are approximate
+- All four doctrine gates must pass — this is conservative by design
+- L2 data is thinner on less popular assets (SOL, XRP, DOGE)
+
 ## Decision-Making Workflow
 
 When the user asks you to find a trade or evaluate an opportunity, follow this sequence:
@@ -331,6 +382,7 @@ Risk parameters live in `{baseDir}/scripts/config.yaml` under the `risk:` key. T
 | `scripts/strategies/fee_aware_mm.py` | Full strategy: reads book, builds `TradeParams`, evaluates, executes. Supports `--dry-run`, `--loop`, `--side`, `--contract`, `--entry`, `--exit`, `--count`. |
 | `scripts/strategies/example_spread.py` | Lightweight: watches spread, prints evaluation when it tightens below threshold. |
 | `scripts/strategies/crypto_sentinel.py` | Crypto price monitor: uses external price feeds (Binance US/Coinbase/CoinGecko) to trigger stop-loss/take-profit exits on crypto-related Kalshi positions. Bypasses Kalshi L2 limitations. |
+| `scripts/strategies/crypto_hourly.py` | Fee-aware hourly crypto bracket trading. Uses log-normal volatility model to find mispriced strikes, runs full 4-gate doctrine, targets directional (above/below) markets. |
 | `references/trading_doctrine.md` | Complete formula reference — read this if you need to verify or explain any calculation. |
 | `references/kalshi_api.md` | SDK method signatures and response fields. |
 

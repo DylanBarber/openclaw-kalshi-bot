@@ -77,9 +77,15 @@ The `/series` endpoint provides access to 212+ crypto series and other repeating
 | `KXETH15M` | fifteen_min | ETH 15M price up down | `KXETH15M-{YYMONDDHHMI}-{MI}` |
 | `KXSOL15M` | fifteen_min | Solana 15 minutes | `KXSOL15M-{YYMONDDHHMI}-{MI}` |
 | `KXXRP15M` | fifteen_min | XRP 15 Minute | `KXXRP15M-{YYMONDDHHMI}-{MI}` |
-| `KXBTC` | hourly | Bitcoin range | `KXBTC-{YYMONDDHHMI}-B{strike}` |
-| `KXETH` | hourly | Ethereum range | `KXETH-{YYMONDDHHMI}-B{strike}` |
-| `KXBTCD` | hourly | Bitcoin price Above/below | `KXBTCD-*` |
+| `KXBTC` | hourly | Bitcoin range (bracket) | `KXBTC-{YYMONDDHHMI}-B{strike}` |
+| `KXETH` | hourly | Ethereum range (bracket) | `KXETH-{YYMONDDHHMI}-B{strike}` |
+| `KXSOL` | hourly | Solana range (bracket) | `KXSOL-{YYMONDDHHMI}-B{strike}` |
+| `KXDOGE` | hourly | Dogecoin range (bracket) | `KXDOGE-{YYMONDDHHMI}-B{strike}` |
+| `KXXRP` | hourly | XRP range (bracket) | `KXXRP-{YYMONDDHHMI}-B{strike}` |
+| `KXBTCD` | hourly | Bitcoin price above/below | `KXBTCD-{YYMONDDHHMI}-T{strike}` |
+| `KXETHD` | hourly | Ethereum price above/below | `KXETHD-{YYMONDDHHMI}-T{strike}` |
+| `KXSOLD` | hourly | SOL price above/below | `KXSOLD-{YYMONDDHHMI}-T{strike}` |
+| `KXXRPD` | hourly | XRP price above/below | `KXXRPD-{YYMONDDHHMI}-T{strike}` |
 | `KXBTCMAXW` | weekly | How high will Bitcoin get this week? | `KXBTCMAXW-*` |
 | `KXBTCMAXM` | monthly | How high will Bitcoin get this month? | `KXBTCMAXM-*` |
 
@@ -109,6 +115,28 @@ The `/series` endpoint provides access to 212+ crypto series and other repeating
 - Markets cycle through statuses: `initialized` -> `active` (tradeable) -> `closed` -> `settled`
 - Only `active` markets have orderbook data and accept orders
 - Markets are only active during Kalshi trading hours
+
+### Hourly market notes
+
+Hourly crypto markets come in two types:
+
+**Directional (above/below)** — `KXBTCD`, `KXETHD`, `KXSOLD`, `KXXRPD`:
+- Each event has 50-75 strike prices (e.g., "BTC above $68,749.99?")
+- Ticker format: `KXBTCD-{YYMONDDHHMI}-T{strike}` (e.g., `KXBTCD-26FEB2017-T68749.99`)
+- YES = price above strike at expiry; NO = price below
+- Best liquidity: BTC ($30k+ volume per popular strike), ETH ($10k+)
+- Real L2 data with tight spreads (1-3c on BTC)
+
+**Range (bracket)** — `KXBTC`, `KXETH`, `KXSOL`, `KXDOGE`, `KXXRP`:
+- Each event has 50+ brackets (e.g., "BTC in $68,500-$68,999.99?")
+- Ticker format: `KXBTC-{YYMONDDHHMI}-B{strike}` (e.g., `KXBTC-26FEB2017-B68500`)
+- YES = price lands in that range; generally lower liquidity than directional
+- Settlement source: CF Benchmarks
+
+Both types:
+- Events become `active` during Kalshi trading hours, `initialized` outside
+- Multiple events may be live at once (e.g., 1 hour, 5 hours, and 24 hours out)
+- The further-out event typically has the most volume/liquidity
 
 ## Markets API
 

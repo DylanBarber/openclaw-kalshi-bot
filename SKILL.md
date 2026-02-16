@@ -37,7 +37,8 @@ scripts/
 └── strategies/
     ├── fee_aware_mm.py    Fee-aware market-making strategy (auto-starts watcher on fill)
     ├── example_spread.py  Simple spread watcher
-    └── crypto_sentinel.py External-price-triggered crypto position manager
+    ├── crypto_sentinel.py External-price-triggered crypto position manager (15min + watch)
+    └── crypto_hourly.py   Fee-aware hourly crypto bracket trading (directional + range)
 ui/
 ├── api_server.py          Flask REST API for the dashboard
 └── static/
@@ -216,6 +217,73 @@ python scripts/runner.py run-strategy crypto_sentinel --ticker BTC -- --stop 650
 - Direction detection is momentum-based (short price sample), not predictive
 - Exit orders are limit orders; fills not guaranteed on thin books
 - Price sources: Binance US (default, best rate limits), Coinbase, CoinGecko (~10-30 req/min)
+
+### Crypto Hourly Strategy
+
+Fee-aware trading of hourly crypto directional bracket markets ("BTC price above $X?"). Uses a log-normal volatility model to estimate probabilities and finds mispriced strikes.
+
+**How it works:**
+1. Discovers the active hourly event via the `/series` endpoint
+2. Fetches external spot price (Binance US / Coinbase / CoinGecko)
+3. Finds at-the-money (ATM) strikes — closest to current spot
+4. Estimates P(above) using hourly volatility model
+5. Compares our probability to Kalshi market price → edge
+6. Runs the full 4-gate doctrine (survivability, fee margin, move threshold, microstructure)
+7. Places a limit order and auto-starts the watcher
+
+**Scan mode:**
+
+```bash
+# Scan available hourly events for BTC (both directional + range)
+python scripts/runner.py run-strategy crypto_hourly --ticker BTC -- --scan
+
+# Scan for ETH
+python scripts/runner.py run-strategy crypto_hourly --ticker ETH -- --scan
+```
+
+**Trade mode (default):**
+
+```bash
+# Dry-run: full evaluation with gate checks, no order placed
+python scripts/runner.py run-strategy crypto_hourly --ticker BTC -- --dry-run
+
+# Live trade with 5% edge threshold (default)
+python scripts/runner.py run-strategy crypto_hourly --ticker BTC
+
+# Lower edge threshold for more trades (3%)
+python scripts/runner.py run-strategy crypto_hourly --ticker BTC -- --edge-threshold 3
+
+# Custom contract count
+python scripts/runner.py run-strategy crypto_hourly --ticker ETH -- --contracts 50 --dry-run
+
+# Override hourly volatility estimate (1.2%)
+python scripts/runner.py run-strategy crypto_hourly --ticker BTC -- --vol-override 1.2
+```
+
+**Continuous mode:**
+
+```bash
+# Auto-trade each new hourly event, poll every 60s
+python scripts/runner.py run-strategy crypto_hourly --ticker BTC -- --loop --interval 60
+```
+
+**Directional series (best liquidity):** `KXBTCD` (BTC), `KXETHD` (ETH), `KXSOLD` (SOL), `KXXRPD` (XRP)
+
+**Range series:** `KXBTC`, `KXETH`, `KXSOL`, `KXDOGE`, `KXXRP`
+
+**Key options:**
+- `--mode directional` (default) — trade "above/below" markets; `--mode range` for bracket range
+- `--edge-threshold 5.0` — minimum edge % to place a trade (lower = more trades, more risk)
+- `--max-strikes 5` — how many strikes near ATM to evaluate
+- `--vol-override` — override the default hourly volatility estimate
+
+**Supported assets:** BTC, ETH, SOL, XRP, DOGE
+
+**Limitations:**
+- Hourly events may be `initialized` outside trading hours
+- Volatility model is a simplified log-normal estimate, not a full options pricer
+- L2 data is thinner on less popular assets (SOL, DOGE, XRP)
+- All four doctrine gates must pass — this is conservative by design
 
 ## Trading Doctrine
 
